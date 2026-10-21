@@ -79,3 +79,4 @@ results/*
 !results/leaderboard.csv
 !results/cleaning_report.md
 !results/features_report.md
+!results/deadball_report.md

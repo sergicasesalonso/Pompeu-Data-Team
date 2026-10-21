@@ -49,28 +49,39 @@ def load_tagging_for(tracking):
     return load_tagging(tracking.meta["team_names"], tracking.meta.get("game", games.GAME))
 
 
-def build_features(tracking, tagging="auto", with_windows=True):
-    """DataFrame (N, d) float32 indexed by video frame. tagging: DataFrame, None, or "auto"."""
+GROUPS = ("ball", "proximity", "pitch_control", "collective", "context")
+
+
+def build_features(tracking, tagging="auto", with_windows=True, groups=GROUPS):
+    """DataFrame (N, d) float32 indexed by video frame. tagging: DataFrame, None, or "auto".
+
+    `groups` picks a subset (a detector that needs no pitch control skips its cost); the
+    windows are only built when every windowed column is available.
+    """
     if isinstance(tagging, str) and tagging == "auto":
-        tagging = load_tagging_for(tracking)
+        tagging = load_tagging_for(tracking) if "context" in groups else None
     fps = tracking.meta.get("fps", 25)
     players = kinematics.player_kinematics(tracking)
     ball = kinematics.ball_kinematics(tracking)
+    makers = {
+        "ball": lambda: kinematics.ball_features(tracking, ball, attack_flip(tracking, 0)),
+        "proximity": lambda: proximity.proximity_features(tracking, players["speed"]),
+        "pitch_control": lambda: pitch_control.pitch_control_features(tracking, players["vel"]),
+        "collective": lambda: collective.collective_features(tracking, players["vel"],
+                                                             players["speed"]),
+        "context": lambda: context.context_features(tracking, tagging),
+    }
 
-    columns, groups = {}, {}
-    for group, values in (
-            ("ball", kinematics.ball_features(tracking, ball, attack_flip(tracking, 0))),
-            ("proximity", proximity.proximity_features(tracking, players["speed"])),
-            ("pitch_control", pitch_control.pitch_control_features(tracking, players["vel"])),
-            ("collective", collective.collective_features(tracking, players["vel"],
-                                                          players["speed"])),
-            ("context", context.context_features(tracking, tagging))):
+    columns, column_groups = {}, {}
+    for group in groups:
+        values = makers[group]()
         columns.update(values)
-        groups.update(dict.fromkeys(values, group))
+        column_groups.update(dict.fromkeys(values, group))
+    groups = column_groups
 
     frame = pd.DataFrame(columns, index=pd.Index(tracking.frames, name="frame"))
     frame = frame.astype(np.float32)
-    if with_windows:
+    if with_windows and set(windows.WINDOWED) <= set(frame.columns):
         windowed = windows.window_features(frame, fps).astype(np.float32)
         groups.update(dict.fromkeys(windowed.columns, "windows"))
         frame = pd.concat([frame, windowed], axis=1)

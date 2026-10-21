@@ -1,0 +1,10 @@
+# A1 check: the published baseline (+/- 125 frames) on the CLEANED tracking. Done when it matches or
+# beats configs/baseline_smooth125.yaml on public_stress (and on external, once A6 exists).
+name: baseline_smooth125_clean
+tracking: atd
+pipeline:
+  method: baseline_nearest
+  params:
+    window: 125
+  clean: {}              # pompeu/clean/__init__.py DEFAULTS; override per step, e.g.
+                         # clean: {frozen: {action: drop}, stitching: {enabled: false}}

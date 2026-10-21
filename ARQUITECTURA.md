@@ -22,12 +22,14 @@ data/ (ATD, XML) → pompeu.io.atd → Tracking → [clean (A1)] → método (co
 | `pompeu/io/gt.py`, `tagging.py`, `homography.py` | GT pública, Smart Tagging (equipo → 0/1/−1) y homografía en metros |
 | `pompeu/clean/` | A1: limpieza del tracking (`Tracking` → `Tracking`). Ver la sección siguiente |
 | `pompeu/features/` | A2: matriz de rasgos por frame. Ver la sección "Rasgos por frame (A2)" |
+| `pompeu/events/deadball.py` | A3: detector de balón muerto (P(D), tramos `D`, reinicios). Ver la sección "Balón muerto (A3)" |
 | `pompeu/models/baseline.py` | El baseline oficial sobre `Tracking` (lo reproduce exacto) |
+| `pompeu/models/deadball_vote.py` | A3: voto del baseline dentro de los tramos vivos, con `D` del detector (método `deadball_vote`) |
 | `pompeu/pipeline.py` | Registro `METHODS`: `config → etiquetas`. Si la config tiene `clean:`, limpia primero. Cada método nuevo se registra aquí |
 | `pompeu/validate/harness.py` | Los 4 bancos y el leaderboard |
 | `pompeu/validate/stress.py` | Borra el balón en la ventana pública (30/50/70 %, 20 semillas) con la distribución real de huecos |
 | `pompeu/validate/bootstrap.py` | Intervalos 5–95 % sobre el código oficial de la métrica |
-| `events/ decode/ external/ vision/` | Vacíos, para las etapas A2–A10 y la Línea B |
+| `decode/ external/ vision/` | Vacíos, para las etapas A4–A10 y la Línea B |
 
 ## Limpieza del tracking (A1)
 
@@ -69,6 +71,49 @@ data/ (ATD, XML) → pompeu.io.atd → Tracking → [clean (A1)] → método (co
 - **Generar**: `python scripts/build_features.py`. Opciones: `--config X` (tracking y `clean` de esa config), `--no-clean`, `--force`. La matriz va a `cache/features_v<versión>_<hash>.parquet` (no se sube a git). El catálogo de columnas con su % de NaN va a `results/features_report.md` (sí se sube).
 - **Desde código**: `from pompeu.features.build import load_or_build; F, ruta = load_or_build("atd", {})` (`{}` = limpieza por defecto, `None` = sin limpiar).
 - Si cambias la definición de un rasgo, sube `FEATURES_VERSION` en `build.py` para que la caché se regenere.
+- `build_features(..., groups=(...), with_windows=False)` calcula solo algunos grupos. A3 lo usa para ahorrarse el pitch control.
+
+## Balón muerto (A3)
+
+`detect(tracking) → DeadBall` en `pompeu/events/deadball.py`. Devuelve `p_dead` (P(D) por frame), `dead` (la segmentación más probable), `segments` y `restarts`: un DataFrame con `frame, start, type, team, confidence, source, exit`. Tarda unos 6 s el partido completo.
+
+**Cómo decide.** Es un HMM de dos estados (vivo/muerto). Cada señal suma log-odds a favor de "muerto" o de "vivo" en cada frame. Las transiciones son pegajosas (40 s de vivo y 20 s de muerto de media), así que hace falta evidencia sostenida para cambiar de estado. Viterbi da los tramos y forward-backward da P(D). La evidencia se escala ×1/(0,5 s·fps), porque frames consecutivos no son independientes.
+
+| Señal | Log-odds | Por qué |
+|---|---|---|
+| Campo lento | 3·(1,4 − velocidad media en 2 s), recortado a [−4, 3] | El umbral de 1,4 m/s de la guía |
+| Balón fuera (> 0,5 m) | +8 | Muerto por reglamento. Tiene que superar el −4 de jugadores corriendo hacia el balón |
+| Balón no visible | +0,5 | El tracker lo pierde más en las paradas |
+| Balón quieto > 1 s en un punto de reinicio (córner, penalti, centro, banda, área pequeña) | +2 (+0,5 en otro sitio) | Balón colocado |
+| Jugada a balón parado del Smart Tagging en < 3 s | +1 | |
+| Fase GOALS | +2 | |
+| Antes del saque inicial de cada parte | +8 | Muerto por definición. La 2ª parte se puntúa 2.934 frames antes de su saque |
+| Golpeo de reinicio | −4 durante 1,5 s | El balón pasa de lento o invisible (≥ 1 s) a > 4 m/s en ≤ 0,5 s con un jugador a < 2 m |
+
+**Después de Viterbi:**
+- Se cierran los tramos vivos de < 5 s entre dos `D`: un jugador que devuelve el balón no es un reinicio.
+- El inicio se adelanta al momento en que el balón cruza la línea o, si no salió, a cuando el campo empezó a frenar.
+- El final se ajusta al golpeo.
+
+**Tipo y equipo de cada reinicio:**
+- Si se vio salir el balón: por banda es saque de banda para el rival del último jugador cercano. Por fondo dentro de los palos es gol y saca el que encaja. Por fondo fuera de los palos es córner si la tocó el defensor, y si no saque de puerta.
+- Si no se vio salir: por dónde se coloca el balón. Si no encaja en nada, falta.
+- El equipo se decide en este orden: etiqueta del Smart Tagging, luego geometría, luego el jugador que golpea. La confianza sube con las coincidencias.
+
+**Resultados** (`configs/deadball_vote50.yaml` y `deadball_vote125.yaml` frente al baseline limpio):
+
+| | spellF1 stress 50 % | spellF1 stress 70 % | macroF1 stress 70 % | `D` en el partido |
+|---|---|---|---|---|
+| baseline ±50 | 0,218 | 0,155 | 0,434 | 32 % |
+| deadball_vote ±50 | 0,305 | 0,263 | 0,691 | 45,7 % |
+| baseline ±125 | 0,294 | 0,232 | 0,479 | 22 % |
+| deadball_vote ±125 | 0,341 | 0,289 | 0,701 | 45,7 % |
+
+Mejora en todos los niveles de stress, pero con 17 posesiones los intervalos de spellF1 se solapan: **según la regla no se puede dar por aceptado hasta tener `external` (A6)**. En la ventana pública detecta 3 de los 4 `D` (se pierde uno de 5,5 s) y los reinicios caen a −33, −12 y +27 frames de la GT. El criterio de la guía (F1 > 0,90 y error mediano < 10 frames) solo se puede comprobar con `external`.
+
+- **Informe**: `python scripts/deadball_report.py` escribe `results/deadball_report.md` (se sube a git) y la lista de reinicios en `cache/deadball_restarts.csv` (no se sube).
+- **Parámetros**: `PARAMS` en `deadball.py`. Se pueden cambiar desde el YAML con `params: {deadball: {out_llr: 6}}`. Todos son valores físicos o de la guía, no ajustados con la GT. Se calibran en A6.
+- **Pendiente para A6**: el clasificador LightGBM vivo/muerto entra por `detect(..., extra_llr=...)`. También falta la convención de la GT: en los 3 reinicios públicos, el `D` termina entre 10 y 33 frames después del golpeo.
 
 ## Bancos de validación
 
@@ -119,13 +164,14 @@ Los datos van en `data/` (o en la ruta de `MTAH_DATA_DIR`). La caché va en `cac
 ## Tests
 
 ```bash
-python -m pytest                       # todo (~75 s)
+python -m pytest                       # todo (~2 min)
 python -m pytest tests/test_io.py      # 0.2: carga del ATD (199.319 frames, 46 slots, balón 56,9 %)
 python -m pytest tests/test_contract.py  # 0.3: invariantes de Tracking
 python -m pytest tests/test_baseline.py  # reproduce los 4 baselines oficiales byte a byte
 python -m pytest tests/test_validate.py  # 0.4: stress, bootstrap y arnés
 python -m pytest tests/test_clean.py     # A1: cada paso de limpieza en casos sintéticos y en el partido
 python -m pytest tests/test_features.py  # A2: balón quieto, pase, salida por banda, pitch control, colectivo, tagging; partido < 5 min
+python -m pytest tests/test_deadball.py  # A3: HMM contra fuerza bruta, golpeo, saque de banda, córner/saque de puerta, partido
 ```
 
 `tests/synthetic.py` construye `Tracking` sintéticos para los tests.
@@ -134,6 +180,6 @@ Los tests que necesitan `data/` se saltan solos si no están los datos.
 
 ## Reglas del repositorio
 
-- Nunca se sube `data/` ni nada derivado (`cache/`, `*.npz`, `*.parquet`, `results/*` salvo `leaderboard.csv`, `cleaning_report.md` y `features_report.md`). El repositorio será público.
+- Nunca se sube `data/` ni nada derivado (`cache/`, `*.npz`, `*.parquet`, `results/*` salvo `leaderboard.csv` y los informes `*_report.md`). El repositorio será público.
 - Dependencias: se edita `requirements.in` y se regenera `requirements.lock` con `pip freeze` en un venv limpio.
 - Contenedor: `container/pompeu.def` (Apptainer) instala `requirements.lock`.
