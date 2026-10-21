@@ -7,6 +7,7 @@
 # Python 3.11. Later stages add their own lines here (numba for A5, torch for A7).
 numpy==2.0.2
 pandas==2.3.3
+pyarrow==25.0.1
 pyyaml==6.0.3
 pytest==9.1.1
 scipy==1.17.1

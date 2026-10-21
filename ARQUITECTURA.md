@@ -21,7 +21,7 @@ data/ (ATD, XML) → pompeu.io.atd → Tracking → [clean (A1)] → método (co
 | `pompeu/io/contract.py` | `Tracking` y `load_tracking("atd" \| ruta.npz)` |
 | `pompeu/io/gt.py`, `tagging.py`, `homography.py` | GT pública, Smart Tagging (equipo → 0/1/−1) y homografía en metros |
 | `pompeu/clean/` | A1: limpieza del tracking (`Tracking` → `Tracking`). Ver la sección siguiente |
-| `pompeu/features/kinematics.py` | Velocidad, aceleración y rumbo con Savitzky–Golay (ventana 7, orden 2), sin cruzar huecos |
+| `pompeu/features/` | A2: matriz de rasgos por frame. Ver la sección "Rasgos por frame (A2)" |
 | `pompeu/models/baseline.py` | El baseline oficial sobre `Tracking` (lo reproduce exacto) |
 | `pompeu/pipeline.py` | Registro `METHODS`: `config → etiquetas`. Si la config tiene `clean:`, limpia primero. Cada método nuevo se registra aquí |
 | `pompeu/validate/harness.py` | Los 4 bancos y el leaderboard |
@@ -49,6 +49,26 @@ data/ (ATD, XML) → pompeu.io.atd → Tracking → [clean (A1)] → método (co
 - **Orden respecto al stress**: la limpieza va dentro del pipeline, así que `public_stress` borra el balón del tracking crudo y el método lo limpia igual que haría en el partido real.
 - **Informe**: `python scripts/cleaning_report.py` escribe `results/cleaning_report.md` (sí se sube a git: solo contiene recuentos).
 - **Resultado** (`configs/baseline_smooth50_clean.yaml` frente a `baseline_smooth50.yaml`): el baseline **iguala** (`public_clean` es idéntico y `public_stress` cambia ±0,0005). Se eliminan 1.911 de los 2.043 saltos, pero el voto mayoritario ya los absorbía. El valor de A1 está en los rasgos y toques de A2–A4. Falta comprobarlo en `external` cuando exista A6.
+
+## Rasgos por frame (A2)
+
+`build_features(tracking) → DataFrame` en `pompeu/features/build.py`. Devuelve una fila por frame de vídeo, en `float32` y con unas 200 columnas. Se calcula sobre el tracking **limpio**: tarda unos 35 s el partido completo y desde la caché 0,5 s.
+
+| Grupo | Fichero | Columnas (sufijo `_H`/`_A` por equipo) |
+|---|---|---|
+| Balón | `features/kinematics.py` | `ball_speed`, `ball_acc`, `ball_turn_deg`, `ball_still` (< 0,5 m/s durante > 1 s), `ball_still_s`, `ball_out` (margen 0,5 m), distancias a las líneas, al centro, a la esquina y al punto de penalti, `ball_x/y_home`, `ball_x_home_last` y temporización del hueco (`ball_gap_age_s`, `_left_s`, `_len_s`) |
+| Proximidad | `features/proximity.py` | `d1/d2/d3` por equipo, `d1_diff`, `nearest_team`, `n2/n5/n10` por equipo, `near_speed`, rachas hacia atrás y hacia delante (`near_streak_s`, `near_streak_fwd_s`) |
+| Control del espacio | `features/pitch_control.py` | Spearman (2018) vectorizado: `pc_ball_H` y `pc_ring_mean/min/max_H` en un anillo de 5 m. Mismo λ para los dos equipos, porque quién ataca es justo lo que queremos inferir |
+| Colectivo | `features/collective.py` | En el marco de ataque de cada equipo: `cx/cy`, `cvx/cvy`, `width`, `depth`, `def_line`, `front`, `compact`, `n_recover`, `n_press`, `speed_mean`, `n_vis`. Globales: `field_speed_mean/median`, `stopped_frac`, `centroid_gap`, `line_gap`. **Existen sin balón** |
+| Contexto | `features/context.py` | `half`, `minute`. Smart Tagging como voto de posesión (`st_vote`: +1 local / −1 visitante), `st_zone_team`, tiempos a la fase anterior y a la siguiente, `sp_<tipo>` y `sp_team` de las jugadas a balón parado, `goal_active` |
+| Ventanas | `features/windows.py` | Media, mínimo y máximo centrados en 0,5 / 2 / 5 s de 12 rasgos clave (`<col>_w2_mean`…) |
+
+- **Con y sin balón**: todo lo que depende del balón es NaN cuando no hay balón, y `ball_present` y la temporización del hueco lo indican. No se imputa nada, porque LightGBM y el modelo secuencial aceptan NaN y así ven que falta el balón.
+- **Semántica del Smart Tagging**, comprobada con la ventana pública: los códigos de ataque (BUILD UP, PROGRESSION, CREATING CHANCES, LONG BALL, ATTACKING TRANSITION, SET PIECES) indican el equipo **con** balón. Los DEFENDING y DEFENSIVE TRANSITION indican el equipo **sin** balón. Los de zona (FINAL THIRD, IN THE BOX) no votan.
+- **Sin Smart Tagging** (datos externos de A6) las columnas existen y valen NaN, así que el esquema es siempre el mismo.
+- **Generar**: `python scripts/build_features.py`. Opciones: `--config X` (tracking y `clean` de esa config), `--no-clean`, `--force`. La matriz va a `cache/features_v<versión>_<hash>.parquet` (no se sube a git). El catálogo de columnas con su % de NaN va a `results/features_report.md` (sí se sube).
+- **Desde código**: `from pompeu.features.build import load_or_build; F, ruta = load_or_build("atd", {})` (`{}` = limpieza por defecto, `None` = sin limpiar).
+- Si cambias la definición de un rasgo, sube `FEATURES_VERSION` en `build.py` para que la caché se regenere.
 
 ## Bancos de validación
 
@@ -99,18 +119,21 @@ Los datos van en `data/` (o en la ruta de `MTAH_DATA_DIR`). La caché va en `cac
 ## Tests
 
 ```bash
-python -m pytest                       # todo (~40 s)
+python -m pytest                       # todo (~75 s)
 python -m pytest tests/test_io.py      # 0.2: carga del ATD (199.319 frames, 46 slots, balón 56,9 %)
 python -m pytest tests/test_contract.py  # 0.3: invariantes de Tracking
 python -m pytest tests/test_baseline.py  # reproduce los 4 baselines oficiales byte a byte
 python -m pytest tests/test_validate.py  # 0.4: stress, bootstrap y arnés
 python -m pytest tests/test_clean.py     # A1: cada paso de limpieza en casos sintéticos y en el partido
+python -m pytest tests/test_features.py  # A2: balón quieto, pase, salida por banda, pitch control, colectivo, tagging; partido < 5 min
 ```
+
+`tests/synthetic.py` construye `Tracking` sintéticos para los tests.
 
 Los tests que necesitan `data/` se saltan solos si no están los datos.
 
 ## Reglas del repositorio
 
-- Nunca se sube `data/` ni nada derivado (`cache/`, `*.npz`, `*.parquet`, `results/*` salvo `leaderboard.csv` y `cleaning_report.md`). El repositorio será público.
+- Nunca se sube `data/` ni nada derivado (`cache/`, `*.npz`, `*.parquet`, `results/*` salvo `leaderboard.csv`, `cleaning_report.md` y `features_report.md`). El repositorio será público.
 - Dependencias: se edita `requirements.in` y se regenera `requirements.lock` con `pip freeze` en un venv limpio.
 - Contenedor: `container/pompeu.def` (Apptainer) instala `requirements.lock`.

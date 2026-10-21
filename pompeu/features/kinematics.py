@@ -15,6 +15,8 @@ import warnings
 import numpy as np
 from scipy.signal import savgol_filter
 
+from pompeu.io.contract import SRC_INTERP
+
 # Params
 WINDOW = 7
 ORDER = 2
@@ -78,3 +80,91 @@ def player_kinematics(tracking, window=WINDOW, order=ORDER):
         velocity[:, slot], acceleration[:, slot] = savgol_kinematics(
             tracking.players_xy[:, slot], fps, window, order)
     return _describe(velocity, acceleration)
+
+
+# -- A2: ball state ----------------------------------------------------------------------------
+
+STILL_SPEED = 0.5   # m/s
+STILL_MIN_S = 1.0
+OUT_MARGIN = 0.5    # metres beyond a line before the ball counts as out
+TURN_LAG = 2        # frames either side for the change of direction
+TURN_MIN_SPEED = 1.0
+PENALTY_SPOT = 11.0
+
+
+def _gap_times(present, fps):
+    """(age, left, length) in seconds of the no-ball gap each frame is in; 0 where present."""
+    n = len(present)
+    index = np.arange(n)
+    last = np.maximum.accumulate(np.where(present, index, -1))
+    following = np.minimum.accumulate(np.where(present, index, n)[::-1])[::-1]
+    age = np.where(last >= 0, index - last, np.nan).astype(float)
+    left = np.where(following < n, following - index, np.nan).astype(float)
+    return age / fps, left / fps, (age + left) / fps
+
+
+def ball_features(tracking, kin, flip_home):
+    """{column: (N,)}: kinematics, stillness, geometry and gap timing of the ball.
+
+    `kin` is ball_kinematics(tracking); flip_home is normalize.attack_flip(tracking, 0), used to
+    express the ball's x as progress towards the goal the home side attacks.
+    """
+    fps = tracking.meta.get("fps", 25)
+    length, width = tracking.meta["pitch"]
+    xy = tracking.ball_xy
+    x, y = xy[:, 0], xy[:, 1]
+    present = tracking.ball_present
+    out = {
+        "ball_present": present.astype(float),
+        "ball_interp": (tracking.ball_source == SRC_INTERP).astype(float),
+        "ball_speed": kin["speed"],
+        "ball_acc": kin["acc_norm"],
+    }
+
+    vel = kin["vel"]
+    before = np.full(vel.shape, np.nan)
+    after = np.full(vel.shape, np.nan)
+    before[TURN_LAG:] = vel[:-TURN_LAG]
+    after[:-TURN_LAG] = vel[TURN_LAG:]
+    with np.errstate(invalid="ignore"):
+        cosine = np.sum(before * after, axis=1) / (np.hypot(*before.T) * np.hypot(*after.T))
+        turn = np.degrees(np.arccos(np.clip(cosine, -1, 1)))
+        turn[(np.hypot(*before.T) < TURN_MIN_SPEED) | (np.hypot(*after.T) < TURN_MIN_SPEED)] = np.nan
+    out["ball_turn_deg"] = turn
+
+    with np.errstate(invalid="ignore"):
+        slow = kin["speed"] < STILL_SPEED
+    still_for = np.full(len(xy), np.nan)
+    still = np.zeros(len(xy))
+    still_for[present] = 0.0
+    starts, stops = runs(slow)
+    for start, stop in zip(starts, stops):
+        still_for[start:stop] = (np.arange(stop - start) + 1) / fps
+        if stop - start >= STILL_MIN_S * fps:
+            still[start:stop] = 1.0
+    still[~present] = np.nan
+    out["ball_still"] = still
+    out["ball_still_s"] = still_for
+
+    edges = np.column_stack((x, length - x, y, width - y))
+    with np.errstate(invalid="ignore"):
+        out["ball_out"] = np.where(present, (edges.min(axis=1) < -OUT_MARGIN).astype(float), np.nan)
+    out["ball_to_goal_line_min"] = np.minimum(edges[:, 0], edges[:, 1])
+    out["ball_to_touchline_min"] = np.minimum(edges[:, 2], edges[:, 3])
+    out["ball_edge_dist"] = edges.min(axis=1)
+    out["ball_dist_centre"] = np.hypot(x - length / 2, y - width / 2)
+    corners = [np.hypot(x - cx, y - cy) for cx in (0, length) for cy in (0, width)]
+    out["ball_dist_corner"] = np.min(corners, axis=0)
+    out["ball_dist_penalty"] = np.minimum(np.hypot(x - PENALTY_SPOT, y - width / 2),
+                                          np.hypot(x - (length - PENALTY_SPOT), y - width / 2))
+
+    # Position in the frame where the home side attacks +x (pompeu.clean.normalize), and the last
+    # known x (works without a ball: where it was last seen is still evidence of who attacks).
+    x_home = np.where(flip_home, length - x, x)
+    out["ball_x_home"] = x_home
+    out["ball_y_home"] = np.where(flip_home, width - y, y)
+    last = np.maximum.accumulate(np.where(present, np.arange(len(xy)), -1))
+    held = np.where(last >= 0, x_home[np.maximum(last, 0)], np.nan)
+    out["ball_x_home_last"] = held
+    out["ball_gap_age_s"], out["ball_gap_left_s"], out["ball_gap_len_s"] = _gap_times(present, fps)
+    return out

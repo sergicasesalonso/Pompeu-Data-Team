@@ -69,7 +69,7 @@ env/
 # -- Pompeu: anything derived from the match data ----------------------------------------------
 # Parsed tracking, Tracking .npz (ATD+), features, detections and per-frame labels all reconstruct
 # the gated data, and this repository goes public. results/leaderboard.csv (scores and hashes) and
-# results/cleaning_report.md (counts) reconstruct nothing, so they are the only files committed.
+# the two reports (counts, column names) reconstruct nothing, so they are the only files committed.
 cache/
 *.npz
 *.npy
@@ -78,3 +78,4 @@ cache/
 results/*
 !results/leaderboard.csv
 !results/cleaning_report.md
+!results/features_report.md

@@ -5,21 +5,8 @@ import pytest
 
 from pompeu.clean import ball, clean_tracking, normalize, players, stitching
 from pompeu.features import kinematics
-from pompeu.io.contract import SRC_ATD, SRC_INTERP, SRC_NONE, Tracking
-
-FPS = 25
-
-
-def make_tracking(players_xy, team, ball_xy, frame0=0):
-    n, k = players_xy.shape[:2]
-    present = ~np.isnan(players_xy[:, :, 0])
-    ball_present = ~np.isnan(ball_xy[:, 0])
-    return Tracking(players_xy=players_xy, players_team=np.broadcast_to(team, (n, k)),
-                    players_conf=present.astype(float), ball_xy=ball_xy,
-                    ball_z=np.full(n, np.nan), ball_conf=ball_present.astype(float),
-                    ball_source=np.where(ball_present, SRC_ATD, SRC_NONE), frame0=frame0,
-                    meta={"game": "BAR-ATH", "fps": FPS, "pitch": (105.3, 68.0),
-                          "home_attack_sign": 1})
+from pompeu.io.contract import SRC_INTERP
+from synthetic import FPS, make_tracking
 
 
 def rolling_ball(n=100, speed=10.0):
