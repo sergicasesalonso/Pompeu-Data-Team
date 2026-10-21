@@ -1,0 +1,8 @@
+# Published baseline (starter/baseline.py) on the Tracking contract: nearest player to the ball,
+# majority vote over +/- 0 frames. Reproduces evaluation/results/baseline_raw.csv exactly.
+name: baseline_raw
+tracking: atd            # "atd", or the path of a Tracking .npz (Line B's ATD+)
+pipeline:
+  method: baseline_nearest
+  params:
+    window: 0

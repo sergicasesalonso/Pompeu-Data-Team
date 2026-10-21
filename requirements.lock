@@ -1,0 +1,14 @@
+# Generated from requirements.in with pip freeze in a clean Python 3.11 venv. Do not edit by hand.
+colorama==0.4.6
+iniconfig==2.3.1
+numpy==2.0.2
+packaging==26.3
+pandas==2.3.3
+pluggy==1.7.0
+Pygments==2.21.0
+pytest==9.1.1
+python-dateutil==2.9.0.post0
+pytz==2026.5
+PyYAML==6.0.3
+six==1.17.0
+tzdata==2026.5
