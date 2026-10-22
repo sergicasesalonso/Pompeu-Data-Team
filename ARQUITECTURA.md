@@ -25,11 +25,13 @@ data/ (ATD, XML) → pompeu.io.atd → Tracking → [clean (A1)] → método (co
 | `pompeu/events/deadball.py` | A3: detector de balón muerto (P(D), tramos `D`, reinicios). Ver la sección "Balón muerto (A3)" |
 | `pompeu/models/baseline.py` | El baseline oficial sobre `Tracking` (lo reproduce exacto) |
 | `pompeu/models/deadball_vote.py` | A3: voto del baseline dentro de los tramos vivos, con `D` del detector (método `deadball_vote`) |
+| `pompeu/events/touches.py` | A4: eventos de balón (toques y controles) con equipo y P(local) |
+| `pompeu/models/rules.py` | A4: `rules_v0`, máquina de estados de posesión. **Primera entrega real** |
 | `pompeu/pipeline.py` | Registro `METHODS`: `config → etiquetas`. Si la config tiene `clean:`, limpia primero. Cada método nuevo se registra aquí |
 | `pompeu/validate/harness.py` | Los 4 bancos y el leaderboard |
 | `pompeu/validate/stress.py` | Borra el balón en la ventana pública (30/50/70 %, 20 semillas) con la distribución real de huecos |
 | `pompeu/validate/bootstrap.py` | Intervalos 5–95 % sobre el código oficial de la métrica |
-| `decode/ external/ vision/` | Vacíos, para las etapas A4–A10 y la Línea B |
+| `decode/ external/ vision/` | Vacíos, para las etapas A5–A10 y la Línea B |
 
 ## Limpieza del tracking (A1)
 
@@ -115,6 +117,40 @@ Mejora en todos los niveles de stress, pero con 17 posesiones los intervalos de 
 - **Parámetros**: `PARAMS` en `deadball.py`. Se pueden cambiar desde el YAML con `params: {deadball: {out_llr: 6}}`. Todos son valores físicos o de la guía, no ajustados con la GT. Se calibran en A6.
 - **Pendiente para A6**: el clasificador LightGBM vivo/muerto entra por `detect(..., extra_llr=...)`. También falta la convención de la GT: en los 3 reinicios públicos, el `D` termina entre 10 y 33 frames después del golpeo.
 
+## Toques y posesión: `rules_v0` (A4)
+
+**Eventos** (`detect_events(tracking, F)` en `pompeu/events/touches.py`, ~1,5 s el partido):
+
+| Evento | Cuándo | Equipo |
+|---|---|---|
+| `touch` | La velocidad del balón cambia > 3 m/s o su dirección > 30° (comparando 2 frames antes y después), con un jugador a < 2 m. Los candidatos a ≤ 3 frames se agrupan en uno | P(local) = 80 % logística de la diferencia de distancias + 20 % pitch control. Guarda `speed_in` y `speed_out` |
+| `control` | El balón está a < 1,5 m del **mismo** jugador durante ≥ 0,6 s (conducción, o balón parado junto a alguien) | El de ese jugador |
+
+**Máquina de estados** (`pompeu/models/rules.py`). Se aplica dentro de cada tramo vivo de A3:
+- **Inicio:** la posesión empieza con el equipo del reinicio (A3) o, si no se conoce, con el del primer evento.
+- **Evento del poseedor:** confirma la posesión y anula cualquier toque rival pendiente (eso era un desvío).
+- **Toque rival:** queda pendiente. Un segundo toque rival en < 3 s (pases encadenados) o un control rival **confirman** el cambio.
+- **Balón por el aire:** un toque con el balón a > 15 m/s antes y después (pasó volando junto al jugador) se ignora.
+- **Equipo dudoso:** se ignoran los eventos con P(local) entre 0,35 y 0,65.
+- **Sin balón no hay eventos**, así que la posesión se mantiene. Es la regla del reto: "si el balón está perdido o disputado, sigue con el último equipo que lo tuvo".
+- **Fecha del cambio:** la GT pública fecha los cambios en el **primer toque** del nuevo equipo, no cuando ya lo controla. Por eso, una vez confirmado, el cambio se adelanta hasta el inicio de la racha en que el rival era el equipo más cercano, sin pasar del último evento del poseedor (`backdate: streak`). La alternativa `touch` lo adelanta solo hasta el toque detectado, pero detectamos pocos toques (unos 8 por minuto).
+
+**Hallazgo:** el balón del ATD a veces es falso: aparece "quieto" en pleno juego con el jugador más cercano a 7–10 m. Como todos los eventos exigen un jugador a < 2 m, esos balones fantasma nunca provocan un cambio.
+
+**Resultados** (`configs/rules_v0.yaml`):
+
+| | clean | stress 30 % | stress 50 % | stress 70 % | posesiones en el partido |
+|---|---|---|---|---|---|
+| baseline ±50 (limpio) | 0,326 | 0,261 | 0,218 | 0,155 | 594 |
+| deadball_vote ±50 | 0,411 | 0,375 | 0,305 | 0,263 | 474 |
+| deadball_vote ±125 | 0,529 | 0,470 | 0,341 | 0,289 | 284 |
+| **rules_v0** | 0,506 | 0,466 | 0,360 | 0,294 | 250 |
+
+- **Frente al baseline** mejora con claridad. Frente a `deadball_vote125` queda **empatado**, dentro del ruido.
+- **Punto débil: falta segmentación.** Da 250 posesiones en el partido, cuando se esperan 300–400, y con el stress al 70 % detecta 8,8 posesiones frente a 17. Cuando no hay balón no hay eventos, y se pierden las posesiones cortas que caen dentro de un hueco. Eso lo tiene que resolver A5 (HSMM con rasgos colectivos y Smart Tagging, que funcionan sin balón).
+- **Entrega de seguridad:** `python scripts/make_submission.py --config configs/rules_v0.yaml` genera `results/submissions/rules_v0.csv`. Es válido según `evaluation/validate_submission.py` y reproducible: dos regeneraciones dan el mismo sha256.
+- **Parámetros** en el YAML: `params: {deadball: {...}, touches: {...}, rules: {...}}`, que sobrescriben los `PARAMS` de cada módulo.
+
 ## Bancos de validación
 
 | Banco | Para qué |
@@ -172,6 +208,7 @@ python -m pytest tests/test_validate.py  # 0.4: stress, bootstrap y arnés
 python -m pytest tests/test_clean.py     # A1: cada paso de limpieza en casos sintéticos y en el partido
 python -m pytest tests/test_features.py  # A2: balón quieto, pase, salida por banda, pitch control, colectivo, tagging; partido < 5 min
 python -m pytest tests/test_deadball.py  # A3: HMM contra fuerza bruta, golpeo, saque de banda, córner/saque de puerta, partido
+python -m pytest tests/test_rules.py     # A4: toques, controles, cada regla de la máquina de estados, intercepción, partido
 ```
 
 `tests/synthetic.py` construye `Tracking` sintéticos para los tests.

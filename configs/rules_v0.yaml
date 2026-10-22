@@ -1,0 +1,11 @@
+# A4: first real model. A3 dead-ball detector + A4 touches/control state machine
+# (pompeu/models/rules.py). Compare with configs/deadball_vote50.yaml and the baselines.
+name: rules_v0
+tracking: atd
+pipeline:
+  method: rules_v0
+  params:
+    deadball: {}   # pompeu.events.deadball.PARAMS overrides
+    touches: {}    # pompeu.events.touches.PARAMS overrides
+    rules: {}      # pompeu.models.rules.PARAMS overrides
+  clean: {}
