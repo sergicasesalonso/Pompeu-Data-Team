@@ -27,11 +27,13 @@ data/ (ATD, XML) → pompeu.io.atd → Tracking → [clean (A1)] → método (co
 | `pompeu/models/deadball_vote.py` | A3: voto del baseline dentro de los tramos vivos, con `D` del detector (método `deadball_vote`) |
 | `pompeu/events/touches.py` | A4: eventos de balón (toques y controles) con equipo y P(local) |
 | `pompeu/models/rules.py` | A4: `rules_v0`, máquina de estados de posesión. **Primera entrega real** |
+| `pompeu/decode/viterbi.py` | A5: núcleos semi-Markov en numba (Viterbi y forward-backward), genéricos |
+| `pompeu/models/hsmm.py` | A5: `hsmm_v1`, modelo semi-Markov oculto de la posesión |
 | `pompeu/pipeline.py` | Registro `METHODS`: `config → etiquetas`. Si la config tiene `clean:`, limpia primero. Cada método nuevo se registra aquí |
 | `pompeu/validate/harness.py` | Los 4 bancos y el leaderboard |
 | `pompeu/validate/stress.py` | Borra el balón en la ventana pública (30/50/70 %, 20 semillas) con la distribución real de huecos |
 | `pompeu/validate/bootstrap.py` | Intervalos 5–95 % sobre el código oficial de la métrica |
-| `decode/ external/ vision/` | Vacíos, para las etapas A5–A10 y la Línea B |
+| `external/ vision/` | Vacíos, para A6 y la Línea B |
 
 ## Limpieza del tracking (A1)
 
@@ -151,6 +153,54 @@ Mejora en todos los niveles de stress, pero con 17 posesiones los intervalos de 
 - **Entrega de seguridad:** `python scripts/make_submission.py --config configs/rules_v0.yaml` genera `results/submissions/rules_v0.csv`. Es válido según `evaluation/validate_submission.py` y reproducible: dos regeneraciones dan el mismo sha256.
 - **Parámetros** en el YAML: `params: {deadball: {...}, touches: {...}, rules: {...}}`, que sobrescriben los `PARAMS` de cada módulo.
 
+## Modelo semi-Markov: `hsmm_v1` (A5)
+
+**Inferencia** (`pompeu/decode/viterbi.py`). Contiene dos núcleos genéricos en numba:
+- `viterbi`: la mejor segmentación;
+- `posteriors`: P(estado) por frame, mediante forward-backward.
+
+Ambos trabajan sobre segmentos con duración explícita. Cuestan O(N · Dmax · S) y aceptan transiciones que dependen del tiempo. `tests/test_hsmm.py` los compara con la **enumeración exhaustiva** de todas las segmentaciones de problemas pequeños, y coinciden exactamente (Viterbi, posteriores y log Z). En el partido completo, Viterbi tarda unos 6 s por parte y los posteriores unos 14 s.
+
+**Modelo** (`pompeu/models/hsmm.py`). Tiene **4 estados ocultos y 3 etiquetas**:
+
+| Estado | Significado | Etiqueta |
+|---|---|---|
+| `HL` / `AL` | Balón vivo, lo tiene el local / el visitante | `H` / `A` |
+| `HD` / `AD` | Balón muerto, reinicia el local / el visitante | `D` |
+
+Un balón muerto también tiene equipo: el que reinicia (lo dice CHALLENGE.md). Con un único estado `D`, cualquier evidencia de equipo durante una parada (por ejemplo, el portero colocando el balón) se interpretaba como "balón vivo" y el modelo se comía las paradas. Con `HD`/`AD` la evidencia de equipo y la de vivo/muerto se **factorizan**: `log e(equipo, vivo) = ±L_equipo/2 ± L_muerto/2`. Un test comprueba que la evidencia de equipo nunca cambia P(vivo)/P(muerto). Además, el reinicio pasa a formar parte de la estructura: `HD → HL`.
+
+- **Duraciones:** log-normales. Las posesiones tienen una mediana de 8 s (mínimo 0,2 s) y las paradas de 20 s (mínimo 1 s). Un segmento de más de 120 s se representa como dos segmentos del mismo estado.
+- **Transiciones:**
+  - posesión → pérdida (0,7) o parada (0,3), y en la parada reinicia cualquiera de los dos equipos al 50 %;
+  - parada → posesión del mismo equipo (0,98).
+
+**Expertos de vivo/muerto (`L_muerto`):**
+- las señales de A3, con el mismo escalado que en A3;
+- la segmentación final de A3, con ±3 por observación. Aporta lo que las señales sueltas no tienen: el inicio en el cruce de la línea, el final en el golpeo de reinicio y la regla de que un balón manipulado durante la parada no es un reinicio. Por eso se descartan los golpeos que A3 dejó dentro de una parada.
+
+**Expertos de equipo (`L_equipo`):**
+- **Proximidad:** cuenta solo si el balón está al alcance de alguien (< 4 m) y **no está disputado**. Si los dos equipos están a menos de 2,5 m, no aporta nada, porque un balón disputado sigue con quien lo tenía.
+- **Eventos de A4:** los controles y los toques, sin contar los balones que pasan volando.
+- **Smart Tagging:** voto de posesión con una correlación de 5 s, porque una etiqueta es **una** decisión por mucho que dure.
+- **Reinicio de A3:** una única observación sobre el equipo de la parada.
+
+**Resultados** (20 semillas):
+
+| | clean | stress 30 % | stress 50 % | stress 70 % | macroF1 s50 / s70 | posesiones |
+|---|---|---|---|---|---|---|
+| rules_v0 | **0,506** | **0,466** | 0,360 | 0,294 | 0,734 / 0,684 | 250 |
+| **hsmm_v1** | 0,449 | 0,410 | 0,352 | **0,322** | **0,767 / 0,743** | 238 |
+| hsmm_v1 sin proximidad | 0,489 | 0,439 | 0,349 | 0,314 | 0,770 / 0,736 | 191 |
+| hsmm_v1_rules (`rules_llr: 1`) | 0,491 | 0,451 | 0,352 | 0,292 | 0,734 / 0,685 | 244 |
+
+- **No cumple todavía el criterio del plan** (mejorar a `rules_v0` en `public_stress`). Es mejor cuando falta mucho balón y peor cuando se ve. El partido real tiene un ~41 % de balón ausente, que cae entre stress 30 % y 50 %, y ahí queda empatado o algo peor. **La entrega sigue siendo `rules_v0`.**
+- La desventaja con balón está en **dónde coloca los cambios**. `rules_v0` codifica la convención de la GT ("espera al control y adelanta el cambio al primer toque") y el HSMM tiene que deducirla de la evidencia frame a frame. Si se le pasa `rules_v0` como experto (`hsmm_v1_rules`), se limita a copiarlo.
+- Lo que falta es lo que el plan ya prevé: **A6**, para ajustar los pesos en `external`, y **A7**, una emisión aprendida de quién tiene el balón cuando no se ve. El HSMM es además el motor de posteriores que necesita el MBR de A9 (`decode(..., {"posteriors": True})`).
+- **Sobre el rango de 300–400 posesiones de la guía:** la GT pública tiene posesiones de 14,2 s de media. Con un 45 % de `D` salen unas **246** posesiones, y con un 35 %, unas 291. Ese rango no es coherente con el propio rango de `D` del plan. Nuestros modelos (238–250 posesiones de 14–15 s) sí lo son con la GT.
+- **Configs:** `configs/hsmm_v1.yaml` y `configs/hsmm_v1_rules.yaml`. Los parámetros se cambian en `params: {hsmm: {...}, deadball: {...}, touches: {...}}`. Ninguno se ha ajustado con la GT: son valores físicos o del plan, y el único que se ha elegido con `public_stress` es el peso de la segmentación de A3 (3).
+- **Entorno:** numba 0.66 está fijado en `requirements.lock`. En Windows, crea el venv en una ruta corta (por ejemplo `C:\venvs\pompeu`): si la ruta es larga, la DLL de numba supera el límite de 260 caracteres y no carga.
+
 ## Bancos de validación
 
 | Banco | Para qué |
@@ -200,7 +250,7 @@ Los datos van en `data/` (o en la ruta de `MTAH_DATA_DIR`). La caché va en `cac
 ## Tests
 
 ```bash
-python -m pytest                       # todo (~2 min)
+python -m pytest                       # todo (~4 min)
 python -m pytest tests/test_io.py      # 0.2: carga del ATD (199.319 frames, 46 slots, balón 56,9 %)
 python -m pytest tests/test_contract.py  # 0.3: invariantes de Tracking
 python -m pytest tests/test_baseline.py  # reproduce los 4 baselines oficiales byte a byte
@@ -209,6 +259,7 @@ python -m pytest tests/test_clean.py     # A1: cada paso de limpieza en casos si
 python -m pytest tests/test_features.py  # A2: balón quieto, pase, salida por banda, pitch control, colectivo, tagging; partido < 5 min
 python -m pytest tests/test_deadball.py  # A3: HMM contra fuerza bruta, golpeo, saque de banda, córner/saque de puerta, partido
 python -m pytest tests/test_rules.py     # A4: toques, controles, cada regla de la máquina de estados, intercepción, partido
+python -m pytest tests/test_hsmm.py      # A5: Viterbi y posteriores contra enumeración exhaustiva, propiedades del modelo, escenas, partido
 ```
 
 `tests/synthetic.py` construye `Tracking` sintéticos para los tests.

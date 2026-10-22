@@ -4,7 +4,8 @@
 #     python -m venv .venv && .venv/Scripts/pip install -r requirements.in   (Windows; bin/ elsewhere)
 #     .venv/Scripts/pip freeze > requirements.lock
 #
-# Python 3.11. Later stages add their own lines here (numba for A5, torch for A7).
+# Python 3.11. Later stages add their own lines here (torch for A7).
+numba==0.66.0
 numpy==2.0.2
 pandas==2.3.3
 pyarrow==25.0.1

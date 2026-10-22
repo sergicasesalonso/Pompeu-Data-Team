@@ -20,12 +20,13 @@ import json
 import numpy as np
 
 from pompeu.clean import clean_tracking
-from pompeu.models import baseline, deadball_vote, rules
+from pompeu.models import baseline, deadball_vote, hsmm, rules
 
 METHODS = {
     "baseline_nearest": baseline.predict,
     "deadball_vote": deadball_vote.predict,     # A3: baseline vote + dead-ball detector
     "rules_v0": rules.predict,                  # A4: touches + control state machine
+    "hsmm_v1": hsmm.predict,                    # A5: semi-Markov model over H/A/D
 }
 
 

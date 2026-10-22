@@ -112,12 +112,22 @@ def possession_changes(events, start, stop, opening, fps, p, nearest=None):
 def predict(tracking, deadball=None, touches=None, rules=None):
     """(N,) H/A/D labels. Each argument overrides that module's PARAMS."""
     from pompeu.features.build import build_features
-    p = _settings(rules)
-    fps = tracking.meta.get("fps", 25)
     F = build_features(tracking, with_windows=False,
                        groups=("ball", "proximity", "pitch_control", "collective", "context"))
     dead = detect_dead(tracking, F=F, params=deadball)
     events = detect_events(tracking, F, params=touches)
+    return labels_from(tracking, dead, events, rules)
+
+
+def labels_from(tracking, dead, events, rules=None):
+    """rules_v0's labels from an A3 result and A4 events already computed for this Tracking.
+
+    Split out of predict() so that hsmm_v1 can use rules_v0 as one of its experts without
+    building the features, the dead-ball detection and the events twice.
+    """
+    p = _settings(rules)
+    fps = tracking.meta.get("fps", 25)
+    events = events.copy()
     events["frame"] -= tracking.frame0
     events["end"] -= tracking.frame0
     rows = list(events.itertuples(index=False))

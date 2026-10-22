@@ -150,3 +150,17 @@ def test_real_match(tracking):
     stats = pm.possession_stats(codes, runs)
     assert 150 <= stats["n_spells"] <= 500
     assert not np.isin(labels[graded], ["X"]).any()
+
+
+def test_labels_from_matches_predict():
+    """hsmm_v1 reuses rules_v0 through labels_from(); it must be the very same decision."""
+    from pompeu.events.deadball import detect
+    from pompeu.features.build import build_features
+    tr = redirect_scene(300)
+    F = build_features(tr, with_windows=False,
+                       groups=("ball", "proximity", "pitch_control", "collective", "context"))
+    dead = detect(tr, F=F)
+    events = touches.detect_events(tr, F)
+    before = events.copy()
+    np.testing.assert_array_equal(rules.labels_from(tr, dead, events), rules.predict(tr))
+    pd.testing.assert_frame_equal(events, before)  # the events it was given are not modified

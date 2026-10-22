@@ -1,6 +1,8 @@
 # Generated from requirements.in with pip freeze in a clean Python 3.11 venv. Do not edit by hand.
 colorama==0.4.6
 iniconfig==2.3.1
+llvmlite==0.48.0
+numba==0.66.0
 numpy==2.0.2
 packaging==26.3
 pandas==2.3.3

@@ -1,0 +1,11 @@
+# A5: hidden semi-Markov model over H/A/D (pompeu/models/hsmm.py) with A3 dead-ball evidence,
+# ball proximity, A4 events and Smart Tagging votes as experts. Compare with configs/rules_v0.yaml.
+name: hsmm_v1
+tracking: atd
+pipeline:
+  method: hsmm_v1
+  params:
+    hsmm: {}       # pompeu.models.hsmm.PARAMS overrides
+    deadball: {}   # pompeu.events.deadball.PARAMS overrides
+    touches: {}    # pompeu.events.touches.PARAMS overrides
+  clean: {}
