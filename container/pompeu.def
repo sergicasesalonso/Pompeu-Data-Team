@@ -1,0 +1,22 @@
+# Apptainer image with the pinned environment, to run the pipeline and check reproducibility on
+# any machine.
+#
+#     apptainer build pompeu.sif container/pompeu.def          # from the repository root
+#     apptainer exec --bind $PWD pompeu.sif python -m pytest
+#
+# Line A only needs requirements.lock. Line B extends this with CUDA and torch.
+Bootstrap: docker
+From: python:3.11.1-slim
+
+%files
+    requirements.lock /opt/pompeu/requirements.lock
+
+%post
+    pip install --no-cache-dir -r /opt/pompeu/requirements.lock
+
+%environment
+    export PYTHONHASHSEED=0
+    export PYTHONDONTWRITEBYTECODE=1
+
+%labels
+    Description Pompeu Data Team, More than a Hack 2027 Phase 1

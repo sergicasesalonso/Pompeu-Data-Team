@@ -1,0 +1,9 @@
+[project]
+name = "pompeu"
+version = "0.0.1"
+description = "Pompeu Data Team -- More than a Hack 2027, Phase 1: ball possession"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

@@ -1,0 +1,11 @@
+# A3 check: nearest-player vote (+/- 50 frames) inside live stretches, D from the dead-ball
+# detector (pompeu/events/deadball.py) instead of "ball not visible". Compare with
+# configs/baseline_smooth50_clean.yaml on public_stress (and external once A6 exists).
+name: deadball_vote50
+tracking: atd
+pipeline:
+  method: deadball_vote
+  params:
+    window: 50
+    # deadball: {out_llr: 8.0}   # any pompeu.events.deadball.PARAMS override
+  clean: {}

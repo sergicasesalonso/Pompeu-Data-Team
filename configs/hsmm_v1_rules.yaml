@@ -1,0 +1,10 @@
+# A5 variant: hsmm_v1 with rules_v0's labels as one more team expert (rules_llr). Measured on
+# par with rules_v0 itself -- it inherits rules_v0's change timing and loses hsmm_v1's edge when
+# the ball is missing. Kept as a documented variant, not the default.
+name: hsmm_v1_rules
+tracking: atd
+pipeline:
+  method: hsmm_v1
+  params:
+    hsmm: {rules_llr: 1.0}
+  clean: {}

@@ -62,5 +62,21 @@ __pycache__/
 venv/
 env/
 .DS_Store
+.pytest_cache/
 
 /docs
+
+# -- Pompeu: anything derived from the match data ----------------------------------------------
+# Parsed tracking, Tracking .npz (ATD+), features, detections and per-frame labels all reconstruct
+# the gated data, and this repository goes public. results/leaderboard.csv (scores and hashes) and
+# the two reports (counts, column names) reconstruct nothing, so they are the only files committed.
+cache/
+*.npz
+*.npy
+*.parquet
+*.part
+results/*
+!results/leaderboard.csv
+!results/cleaning_report.md
+!results/features_report.md
+!results/deadball_report.md
