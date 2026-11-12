@@ -8,4 +8,5 @@ Projecte del Pompeu Data Team (Martí, Sergi i Ander) per al More Than A Hack 20
 - **«torno»**: fes `git pull` de `origin/marti-agent`, revisa'n els canvis i executa primer el que hi hagi a «pendent d'avaluar» de `equip/COLA-MARTI.md`.
 - **Mai facis commit de `data/`** ni de res derivat frame a frame (tracking, rasgos, etiquetes per frame, `cache/`, `*.npz`, `*.parquet`, `results/*` excepte `leaderboard.csv` i els `*_report.md`): el repo és públic i les condicions ho prohibeixen.
 - **No toquis mai `main` ni `sergi` directament**: el que estigui bé hi arriba per PR.
+- Mai afegeixis `Co-Authored-By` de Claude (ni cap atribució a Claude) als missatges de commit.
 - Els documents d'equip van a `equip/`, no a `docs/` (`/docs` és al `.gitignore`).
