@@ -4,6 +4,28 @@ import numpy as np
 import pandas as pd
 
 
+def detect_ball(frames, *, checkpoint=None, expected_sha256=None, **options):
+    """Load a private trained checkpoint and detect on CPU unless explicitly overridden.
+
+    PyTorch remains an optional dependency: importing heatmap utilities does not
+    import it. Input is a video array or (absolute_frame, RGB_uint8) pairs.
+    """
+    from pathlib import Path
+    import hashlib
+    from pompeu import paths
+    from .checkpoint import load_model
+    from .predict import BallDetector
+    if checkpoint is None:
+        config = Path(paths.ROOT) / "configs" / "b2_temporal.yaml"
+        config_id = hashlib.sha256(config.read_bytes()).hexdigest()[:16]
+        checkpoint = Path(paths.CACHE_DIR) / "ball_det" / config_id / "best.pt"
+    path = checkpoint
+    model, metadata = load_model(path, expected_sha256)
+    if "crop_shape" in metadata:
+        options.setdefault("crop_shape", tuple(metadata["crop_shape"]))
+    return BallDetector(model, **options).detect_ball(frames)
+
+
 def make_heatmap(height, width, x_px, y_px, sigma=2.0):
     """Gaussian target in crop pixels, with its peak at the labelled centre."""
     if height <= 0 or width <= 0 or not np.isfinite(sigma) or sigma <= 0:
