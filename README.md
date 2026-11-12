@@ -1,3 +1,36 @@
+# Pompeu Data Team — reproducing our submission
+
+Our code is in `pompeu/`, the configs in `configs/` and the scripts in `scripts/`. How it works:
+[ARQUITECTURA.md](ARQUITECTURA.md). Everything below this section is the organisers' README.
+
+**1. Environment** — Python **3.11** (the lock pins numpy 2.0.2, which has no wheels for 3.13):
+
+```bash
+python3.11 -m venv .venv
+.venv/bin/pip install -r requirements.lock          # Windows: .venv\Scripts\pip
+```
+
+On Windows, put the venv on a short path (for example `C:\venvs\pompeu`): with a long path numba's
+DLL fails to load. `container/pompeu.def` builds the same environment as an Apptainer image.
+
+**2. Data** — unpack the match bundle into `data/` as described in [data/README.md](data/README.md)
+(or point `MTAH_DATA_DIR` at it). Nothing from it is in this repository.
+
+**3. Regenerate the submission** — one command:
+
+```bash
+python scripts/make_submission.py --config configs/final.yaml --out PompeuDataTeam.csv
+python evaluation/validate_submission.py PompeuDataTeam.csv
+```
+
+Expected `sha256` of `PompeuDataTeam.csv`:
+`bfd5ff16006b1e5c50371abeb528195cdc7a60397ec8bed90a8fccc468269f41`
+
+**Tests:** `python -m pytest` (about 2 minutes with the data; tests that need it skip themselves
+without it).
+
+---
+
 # More than a Hack 2027 — Phase 1: Ball Possession
 
 **Organised by [Metrica Sports](https://metrica-sports.com), [FC Barcelona](https://www.fcbarcelona.com)
