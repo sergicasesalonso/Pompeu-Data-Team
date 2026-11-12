@@ -2,7 +2,7 @@
 
 ## Torn
 
-**portàtil** — `portàtil` = treballa el Martí; `servidor` = treballa l'agent del servidor a `marti` (commits locals).
+**servidor** — `portàtil` = treballa el Martí; `servidor` = treballa l'agent del servidor a `marti` (commits locals).
 
 ## Pendent d'avaluar
 
