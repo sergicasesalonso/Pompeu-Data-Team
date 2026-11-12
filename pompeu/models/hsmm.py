@@ -113,6 +113,8 @@ PARAMS = {
     "restart_window_s": 3.0,
     "w_restart": 1.0,
     "rules_llr": 0.0,            # per look, for rules_v0's team on its live frames (A4's output)
+    "w_learned_team": 0.0,       # A7's sequence model, when prepare()["learned"] carries it
+    "w_learned_dead": 0.0,
     "posteriors": False,
 }
 
@@ -214,35 +216,53 @@ def emissions(dead_llr, team, p):
     """(N, 4) per-frame log emissions: team and liveness evidence, factorised."""
     L_team = (p["w_proximity"] * team["proximity"] + p["w_events"] * team["events"]
               + p["w_tagging"] * team["tagging"] + p["w_restart"] * team["restart"]
-              + team.get("rules", 0.0))
+              + team.get("rules", 0.0) + team.get("learned", 0.0))
     L_dead = p["w_dead"] * dead_llr
     return 0.5 * (L_team[:, None] * TEAM_SIGN[None] + L_dead[:, None] * DEAD_SIGN[None])
 
 
 # -- decoding ----------------------------------------------------------------------------------
 
-def decode(tracking, hsmm=None, deadball_params=None, touches_params=None):
-    """{'labels' (N,) H/A/D, 'segments' [(start, stop, state name)] absolute, 'posterior'
-    (N, 3) P(H), P(A), P(D) or None, 'evidence', 'deadball', 'events'} for a cleaned Tracking."""
-    p = _settings(hsmm)
+def prepare(tracking, deadball_params=None, touches_params=None):
+    """Everything that does not depend on the HSMM's own parameters, computed once.
+
+    Fitting the HSMM's weights (scripts/fit_hsmm.py) decodes the same matches many times with
+    different weights; only decode_prepared() runs per candidate.
+    """
+    from pompeu.models.rules import labels_from
     fps = tracking.meta.get("fps", 25)
-    n = tracking.n_frames
     F = build_features(tracking, with_windows=False,
                        groups=("ball", "proximity", "pitch_control", "collective", "context"))
     dead = deadball.detect(tracking, F=F, params=deadball_params)
-    dead_cues = deadball.evidence(F, fps, deadball_params, tracking.half_blocks())
+    # The cues A3 computed for its own HMM, learned classifier included when it is on.
+    dead_cues = dict(dead.evidence)
     # A kick inside one of A3's dead stretches is a ball handled during the stoppage, which A3
     # already ruled out as a restart: it is not live evidence here either.
     dead_cues["kick"] = np.where(dead.dead, 0.0, dead_cues["kick"])
     tau = deadball._settings(deadball_params)["evidence_tau_s"]
-    dead_llr = np.sum(list(dead_cues.values()), axis=0) / (tau * fps)
-    dead_llr += np.where(dead.dead, 1.0, -1.0) * p["a3_segment_llr"] / (p["evidence_tau_s"] * fps)
     events = touches.detect_events(tracking, F, params=touches_params)
-    rules_labels = None
-    if p["rules_llr"]:
-        from pompeu.models.rules import labels_from
-        rules_labels = labels_from(tracking, dead, events)
-    team = team_evidence(tracking, F, events, dead, p, rules_labels)
+    return {"tracking": tracking, "F": F, "deadball": dead, "events": events,
+            "dead_cue_llr": np.sum(list(dead_cues.values()), axis=0) / (tau * fps),
+            "rules_labels": labels_from(tracking, dead, events), "learned": {}}
+
+
+def decode_prepared(prep, hsmm=None):
+    """decode() on a prepare() result: emissions with these parameters, then inference."""
+    p = _settings(hsmm)
+    tracking, dead = prep["tracking"], prep["deadball"]
+    fps = tracking.meta.get("fps", 25)
+    n = tracking.n_frames
+    scale = 1.0 / (p["evidence_tau_s"] * fps)
+    dead_llr = prep["dead_cue_llr"] + np.where(dead.dead, 1.0, -1.0) * p["a3_segment_llr"] * scale
+    rules_labels = prep["rules_labels"] if p["rules_llr"] else None
+    team = team_evidence(tracking, prep["F"], prep["events"], dead, p, rules_labels)
+    # Learned experts (A7's sequence model): per-frame log-odds, already calibrated, weighted
+    # and scaled for autocorrelation like every other per-frame cue.
+    learned = prep.get("learned") or {}
+    if "team" in learned:
+        team["learned"] = p["w_learned_team"] * learned["team"] * scale
+    if "dead" in learned:
+        dead_llr = dead_llr + p["w_learned_dead"] * learned["dead"] * scale
     emission = emissions(dead_llr, team, p)
     log_dur = log_durations(p, fps)
     T = transition_matrix(p)
@@ -272,7 +292,13 @@ def decode(tracking, hsmm=None, deadball_params=None, touches_params=None):
                                                 occupancy[:, HD] + occupancy[:, AD]))
     evidence = dict(team, dead=dead_llr)
     return {"labels": labels, "segments": segments, "posterior": posterior,
-            "evidence": evidence, "deadball": dead, "events": events}
+            "evidence": evidence, "deadball": dead, "events": prep["events"]}
+
+
+def decode(tracking, hsmm=None, deadball_params=None, touches_params=None):
+    """{'labels' (N,) H/A/D, 'segments' [(start, stop, state name)] absolute, 'posterior'
+    (N, 3) P(H), P(A), P(D) or None, 'evidence', 'deadball', 'events'} for a cleaned Tracking."""
+    return decode_prepared(prepare(tracking, deadball_params, touches_params), hsmm)
 
 
 def predict(tracking, hsmm=None, deadball=None, touches=None):

@@ -95,8 +95,13 @@ def test_bench_off_and_match_listing():
     cfg = harness.load_config(harness.paths.CONFIGS_DIR + "/rules_v0.yaml")
     cfg["validation"]["external"]["datasets"] = []
     assert harness.bench_external(cfg, np.array([25]), 0)["status"].startswith("pending")
-    assert harness.external_matches(["J03WPY"]) == ["J03WPY"]
-    assert set(harness.external_matches("auto")) <= set(dfl.MATCHES)
+    from pompeu import external
+    assert set(harness.external_matches("auto")) <= set(external.ALL)
+    assert set(harness.external_matches("test")) <= set(external.SPLITS["test"])
+    assert external.canonical("J03WPY") == "dfl:J03WPY"
+    # The split is by whole match and the three parts never share one.
+    parts = [set(external.SPLITS[k]) for k in ("train", "val", "test")]
+    assert not (parts[0] & parts[1]) and not (parts[0] & parts[2]) and not (parts[1] & parts[2])
 
 
 # -- the real conversion (needs scripts/prepare_external.py) ----------------------------------
