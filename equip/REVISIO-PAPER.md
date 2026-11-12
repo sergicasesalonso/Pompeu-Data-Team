@@ -48,3 +48,9 @@ Sense font al que he llegit:
 ## E. Coses que estan bé (no tocar)
 
 Taula de datasets amb llicències, dir què s'ha descartat, la nota sobre per què Metrica 3 és el de test, l'avís que les xifres absolutes de l'extern només es comparen amb el mateix `min_possession_s`, i la secció de neteja (cada regla amb el seu paràmetre).
+
+## F. Actualització (13-11, nit)
+
+- Corregits al paper (commit 47388e9): descripció de `val` (només J03WN1), la frase del 0,04 i la del llindar de 5 s; «every choice» → «every comparison between methods». Pendent de Martí (no tocat): tallar el paper, Línia B sí/no, valor final de `min_possession_s` i `dead_weight`.
+- **Verificats contra `PARAMS` del codi** (de B, «sense font»): A3 (`speed_ref` 1,4; `out_llr` 8; `absent_llr` 0,5; `still_spot_llr` 2 / `still_llr` 0,5; set piece 3 s +1; `goal_llr` 2; `pre_kickoff_llr` 8; kick −4 durant 1,5 s, 4 m/s, 0,5 s, 2 m; vida mitjana 40 s i 20 s; `min_live_gap_s` 5), A4 (3 m/s, 30°, 2 m, 80/20 amb `pitch_control_weight` 0,2; control 1,5 m / 0,6 s), `rules_v0` (3 s, 15 m/s, `min_team_confidence` 0,3 ≡ P(home) fora de 0,35–0,65) i HSMM (medianes 8 s / 20 s, mínims 0,2 / 1 s, 0,3 / 0,7, 0,98, 4 m, 2,5 m, `tag_tau_s` 5, `a3_segment_llr` 3). Tot coincideix amb §5. No he comprovat «ball more than 0.5 m outside the pitch» (a `deadball.py`, no és a `PARAMS`).
+- Segueixen sense font: «1.911 de 2.043 salts» i «89 % de velocitat buida».
