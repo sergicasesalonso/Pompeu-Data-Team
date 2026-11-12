@@ -215,7 +215,8 @@ def align(tactical, bcast, bcast_valid, params=None):
     if len(votes):
         bins = np.round(votes / p["offset_bin"]).astype(int)
         values, counts = np.unique(bins, return_counts=True)
-        order = np.argsort(-counts)
+        # Stable: ties in the vote count keep the np.unique order (ascending bin), on any numpy.
+        order = np.argsort(-counts, kind="stable")
         for v, c in zip(values[order], counts[order]):
             if c < p["offset_min_share"] * len(votes):
                 break

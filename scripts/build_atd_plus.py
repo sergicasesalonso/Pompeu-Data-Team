@@ -46,7 +46,11 @@ def tracking_hash(tracking):
     h.update(repr(int(tracking.frame0)).encode())
     h.update(repr(tracking.meta).encode())
     for name in ARRAY_FIELDS:
-        a = np.ascontiguousarray(getattr(tracking, name))
+        a = np.asarray(getattr(tracking, name))
+        if a.dtype.kind == "f":
+            # One NaN and one zero, whatever bits the operation that made them left behind.
+            a = np.where(np.isnan(a), np.nan, a + 0.0).astype(a.dtype)
+        a = np.ascontiguousarray(a)
         h.update(name.encode())
         h.update(str(a.dtype).encode())
         h.update(repr(a.shape).encode())
