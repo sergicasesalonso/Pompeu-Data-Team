@@ -6,15 +6,27 @@ Our code is in `pompeu/`, the configs in `configs/` and the scripts in `scripts/
 **1. Environment** — Python **3.11** (the lock pins numpy 2.0.2, which has no wheels for 3.13):
 
 ```bash
-python3.11 -m venv .venv
-.venv/bin/pip install -r requirements.lock          # Windows: .venv\Scripts\pip
+# Linux / macOS
+python3.11 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.lock
+
+# Windows (PowerShell): install Python 3.11 first; keep the venv on a short path,
+# because with a long path numba's DLL fails to load
+py -3.11 -m venv C:\venvs\pompeu
+C:\venvs\pompeu\Scripts\activate
+pip install -r requirements.lock
 ```
 
-On Windows, put the venv on a short path (for example `C:\venvs\pompeu`): with a long path numba's
-DLL fails to load. `container/pompeu.def` builds the same environment as an Apptainer image.
+With [uv](https://docs.astral.sh/uv/) instead: `uv venv --python 3.11 C:\venvs\pompeu` and
+`uv pip install --python C:\venvs\pompeu\Scripts\python.exe -r requirements.lock`.
+`container/pompeu.def` builds the same environment as an Apptainer image. Every command below
+assumes this venv is active.
 
-**2. Data** — unpack the match bundle into `data/` as described in [data/README.md](data/README.md)
-(or point `MTAH_DATA_DIR` at it). Nothing from it is in this repository.
+**2. Data** — unpack the match bundle into `data/` as described in [data/README.md](data/README.md),
+or point `MTAH_DATA_DIR` at it (`export MTAH_DATA_DIR=/path/to/bundle`, or
+`$env:MTAH_DATA_DIR = "D:\path\to\bundle"` in PowerShell). Nothing from it is in this repository.
+The pipeline caches parsed tracking in `cache/` (move it with `POMPEU_CACHE_DIR`); a run from an
+empty cache takes about 1.5 minutes.
 
 **3. Regenerate the submission** — one command:
 
@@ -26,8 +38,8 @@ python evaluation/validate_submission.py PompeuDataTeam.csv
 Expected `sha256` of `PompeuDataTeam.csv`:
 `bfd5ff16006b1e5c50371abeb528195cdc7a60397ec8bed90a8fccc468269f41`
 
-**Tests:** `python -m pytest` (about 2 minutes with the data; tests that need it skip themselves
-without it).
+**Tests:** `python -m pytest` (about 3 minutes with the data; tests that need it skip themselves
+without it). Verified from a fresh clone, a new Python 3.11 venv and an empty cache: same sha256.
 
 ---
 
