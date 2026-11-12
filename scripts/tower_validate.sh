@@ -5,7 +5,8 @@
 #   bash scripts/tower_validate.sh --quick rules_v0     # quick run of one config
 #
 # Refuses to run on a dirty tree (the leaderboard row would say +dirty). Needs the data, so it
-# belongs on the tower. Appends rows to results/leaderboard.csv; commit that file afterwards.
+# belongs on the tower. Commits results/leaderboard.csv after each config (local commit, no push)
+# so the next row is clean too. Run it inside the project's Python 3.11 venv.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -23,9 +24,19 @@ for c in "${configs[@]}"; do
   [ -f "configs/$c.yaml" ] || { echo "missing configs/$c.yaml" >&2; exit 1; }
 done
 
+# harness.run reads the git state per config, and each run appends to the tracked
+# results/leaderboard.csv: without a commit in between, every config after the first is +dirty.
 for c in "${configs[@]}"; do
   echo "== $c"
   python scripts/run_validation.py --config "configs/$c.yaml" "${extra[@]}" 2>&1 | tail -n 25
+  if [ -n "$(git status --porcelain --untracked-files=no -- results/leaderboard.csv)" ]; then
+    git add results/leaderboard.csv
+    git commit -q -m "leaderboard: $c${extra:+ (quick)}"
+  fi
+  if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+    echo "tree dirty after $c (something besides the leaderboard changed): stopping" >&2
+    exit 1
+  fi
 done
 
 python - <<'PY'
