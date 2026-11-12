@@ -41,12 +41,12 @@ DEFAULTS = {
                    # Seconds of untouched tracking either side of the window, so methods with a
                    # temporal context see the same neighbourhood as on the full match.
                    "context_s": 60},
-        # "auto": every IDSSE match found in data/external/idsse (scripts/prepare_external.py);
-        # or a list of match ids; [] switches the bench off. Each match is degraded `seeds`
-        # times (pompeu.external.degrade) before the method sees it.
+        # Which external matches score (pompeu.external): a split name ("test", the default --
+        # never trained or tuned on), "all", or a list of names like "dfl:J03WPY"; [] switches
+        # the bench off. Each match is degraded `seeds` times (pompeu.external.degrade).
         # min_possession_s maps DFL's touch-level possession onto the challenge's control rule
         # (pompeu.external.dfl.align_labels): 5 s matches the public window's possession rate.
-        "external": {"datasets": "auto", "seeds": 2, "degrade": {}, "min_possession_s": 5.0},
+        "external": {"datasets": "test", "seeds": 2, "degrade": {}, "min_possession_s": 5.0},
         # Expected on a real full match (guía, 0.4). Outside these is a red flag, not a score.
         "sanity": {"possessions": [300, 400], "dead_pct": [35.0, 45.0]},
     },
@@ -144,18 +144,9 @@ def bench_public_stress(cfg, tracking, gt_codes, n_draws, verbose=False):
 
 
 def external_matches(setting):
-    """IDSSE match ids the external bench uses: 'auto' = every match downloaded."""
-    from pompeu.external import dfl
-    if setting == "auto":
-        out = []
-        for match_id in dfl.MATCHES:
-            try:
-                dfl.files(match_id)
-                out.append(match_id)
-            except IOError:
-                continue
-        return out
-    return list(setting or [])
+    """Registry names the external bench uses (pompeu.external.resolve), present ones only."""
+    from pompeu import external
+    return external.resolve(setting)
 
 
 def bench_external(cfg, run_lengths, n_draws, verbose=False):
@@ -166,18 +157,19 @@ def bench_external(cfg, run_lengths, n_draws, verbose=False):
     no segment crosses from one match to the next -- and the interval is the same two-level
     bootstrap as public_stress (seeds and ground-truth possessions).
     """
-    from pompeu.external import degrade, dfl
+    from pompeu import external
+    from pompeu.external import degrade
     settings = cfg["validation"]["external"]
     matches = external_matches(settings["datasets"])
     if not matches:
-        return {"status": "pending: no external matches (run scripts/prepare_external.py)"}
+        return {"status": "pending: no external matches present (scripts/prepare_external.py)"}
 
     gt_parts, cleans = [], []
-    for match_id in matches:
-        tracking, labels = dfl.load(match_id)
+    for name in matches:
+        tracking, labels = external.load(name)
         graded = np.where(tracking.half() > 0, labels, pm.X).astype(np.int8)
-        gt_parts.append(dfl.align_labels(graded, settings.get("min_possession_s", 0.0),
-                                         tracking.meta.get("fps", 25)))
+        gt_parts.append(external.align_labels(graded, settings.get("min_possession_s", 0.0),
+                                              tracking.meta.get("fps", 25)))
         cleans.append((tracking, labels))
     gap = np.full(1, pm.X, dtype=np.int8)
     gt = np.concatenate([part for g in gt_parts for part in (g, gap)])
