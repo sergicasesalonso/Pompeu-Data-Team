@@ -57,7 +57,8 @@ class Tracking:
     ball_conf: np.ndarray
     ball_source: np.ndarray
     frame0: int = 0
-    # game, source, fps, pitch, team_names, home_attack_sign. Plain JSON-able values only.
+    # game, source, fps, pitch, team_names, home_attack_sign, and halves [(half, first, last)]
+    # for a match that is not in games.py. Plain JSON-able values only.
     meta: dict = field(default_factory=dict)
 
     def __post_init__(self):
@@ -125,11 +126,21 @@ class Tracking:
 
     # -- match context -------------------------------------------------------------------------
 
+    def half_blocks(self):
+        """[(half, first_frame, last_frame)] inclusive, absolute frames.
+
+        meta["halves"] when the match carries its own (external datasets), else the published
+        BAR-ATH blocks from games.py. Every piece of code that needs the halves asks here.
+        """
+        if self.meta.get("halves"):
+            return [tuple(int(v) for v in block) for block in self.meta["halves"]]
+        return games.half_video_blocks(self.meta.get("game", games.GAME))
+
     def half(self):
         """(N,) int8: 1 or 2 inside a half (graded frames), 0 outside."""
         out = np.zeros(self.n_frames, dtype=np.int8)
         frames = self.frames
-        for half, first, last in games.half_video_blocks(self.meta.get("game", games.GAME)):
+        for half, first, last in self.half_blocks():
             out[(frames >= first) & (frames <= last)] = half
         return out
 

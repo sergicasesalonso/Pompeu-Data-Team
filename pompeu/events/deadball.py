@@ -24,6 +24,8 @@ The cues, all from A2 features (log-odds per frame, before the autocorrelation s
                       touchline or in the six-yard box: placed for a restart.
     set piece soon    a Smart Tagging set piece starts within the next few seconds.
     goal tag          inside a GOALS phase.
+    classifier        (optional, gbm_weight) the live/dead gradient boosting model trained on the
+                      external matches (pompeu.models.deadball_gbm): its per-frame log-odds.
     before kick-off   from a half's first graded frame to the kick inside its "Kick Off (Start)"
                       tag: dead by definition (the 2nd half is graded 2934 frames before its
                       kick-off). Only applied when the half's first frame is in this Tracking.
@@ -83,6 +85,9 @@ PARAMS = {
     "setpiece_soon_llr": 1.0,
     "goal_llr": 2.0,
     "pre_kickoff_llr": 8.0,    # before a half's kick-off the ball is dead by definition
+    # The learned live/dead classifier (pompeu.models.deadball_gbm, trained on the external
+    # matches) as one more expert: its per-frame log-odds times this weight. 0 = off.
+    "gbm_weight": 0.0,
     "kick_llr": -4.0,
     "kick_hold_s": 1.5,
     "kick_speed": 4.0,         # m/s after the kick
@@ -197,7 +202,7 @@ def in_six_yard_box(F):
         return (x_line >= 0) & (x_line < SIX_YARD_DEPTH) & (np.abs(y - 34.0) < SIX_YARD_HALF_WIDTH)
 
 
-def evidence(F, fps, params=None):
+def evidence(F, fps, params=None, blocks=None):
     """{cue: (N,) log-odds for DEAD}. Sum them for the HMM's per-frame evidence."""
     p = _settings(params)
     n = len(F)
@@ -224,22 +229,23 @@ def evidence(F, fps, params=None):
     for frame in kicks:
         kick[frame:frame + hold] = p["kick_llr"]
     out["kick"] = kick
-    out["pre_kickoff"] = pre_kickoff(F, kicks, p)
+    out["pre_kickoff"] = pre_kickoff(F, kicks, p, blocks)
     return out
 
 
-def pre_kickoff(F, kicks, p):
+def pre_kickoff(F, kicks, p, blocks=None):
     """Dead evidence from each half's first graded frame to its kick-off kick.
 
     The kick-off is the first kick inside the half's "Kick Off (Start)" Smart Tagging phase (or
     the phase's start when no kick is seen there). Needs the half's true first frame to be in F,
-    so a crop that starts mid-half gets nothing.
+    so a crop that starts mid-half gets nothing. blocks: Tracking.half_blocks(), BAR-ATH's if None.
     """
     import games
+    blocks = games.half_video_blocks(games.GAME) if blocks is None else blocks
     out = np.zeros(len(F))
     frames = F.index.to_numpy()
     tag = _col(F, "sp_kickoff_start") > 0
-    for half, first, _ in games.half_video_blocks(games.GAME):
+    for half, first, _ in blocks:
         rows = np.flatnonzero(frames == first)
         if not len(rows):
             continue
@@ -248,11 +254,29 @@ def pre_kickoff(F, kicks, p):
         if not len(tagged):
             continue
         tag_start = int(tagged[0])
-        tag_stop = tag_start + int(np.argmin(tag[tag_start:])) if not tag[tag_start:].all()             else len(F)
+        tag_stop = (tag_start + int(np.argmin(tag[tag_start:])) if not tag[tag_start:].all()
+                    else len(F))
         inside = kicks[(kicks >= max(start, tag_start - 1)) & (kicks < tag_stop)]
         stop = int(inside[0]) if len(inside) else tag_start
         out[start:stop] = p["pre_kickoff_llr"]
     return out
+
+
+def gbm_cue(tracking, F, p):
+    """(N,) the live/dead classifier's log-odds of dead, times gbm_weight; None when off.
+
+    The classifier needs the full A2 feature set (pitch control, windows); a lighter F is
+    rebuilt in full here. Smart Tagging is not among its inputs.
+    """
+    if not p["gbm_weight"]:
+        return None
+    from pompeu.models import deadball_gbm
+    model = deadball_gbm.load()
+    if not set(model.feature_name()) <= set(F.columns):
+        from pompeu.features.build import build_features
+        F = build_features(tracking, tagging=None)
+    prob = np.clip(deadball_gbm.predict(model, F), 1e-4, 1 - 1e-4)
+    return p["gbm_weight"] * np.log(prob / (1 - prob))
 
 
 # -- two-state HMM -----------------------------------------------------------------------------
@@ -445,7 +469,10 @@ def detect(tracking, F=None, params=None, tags="auto", extra_llr=None):
         tagging = load_tagging_for(tracking)
         tags = None if tagging is None else tagging[tagging["code"] == "SET PIECES"]
 
-    cues = evidence(F, fps, p)
+    cues = evidence(F, fps, p, tracking.half_blocks())
+    learned = gbm_cue(tracking, F, p)
+    if learned is not None:
+        cues["gbm"] = learned
     if extra_llr is not None:
         cues["extra"] = np.nan_to_num(np.asarray(extra_llr, dtype=np.float64))
     scale = 1.0 / (p["evidence_tau_s"] * fps)

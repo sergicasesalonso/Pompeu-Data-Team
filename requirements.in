@@ -5,6 +5,7 @@
 #     .venv/Scripts/pip freeze > requirements.lock
 #
 # Python 3.11. Later stages add their own lines here (torch for A7).
+kloppy==3.18.0
 numba==0.66.0
 numpy==2.0.2
 pandas==2.3.3

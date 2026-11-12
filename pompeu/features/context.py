@@ -94,14 +94,12 @@ def context_features(tracking, tagging):
     With tagging=None (a match without Smart Tagging, e.g. an external dataset) the tagging
     columns exist and are NaN, so every match has the same schema.
     """
-    game = tracking.meta.get("game", games.GAME)
     fps = tracking.meta.get("fps", 25)
-    n_video = games.GAMES[game]["n_video_frames"]
     rows = tracking.frames
 
     half = tracking.half().astype(float)
     minute = np.full(len(rows), np.nan)
-    for number, first, last in games.half_video_blocks(game):
+    for number, first, last in tracking.half_blocks():
         inside = (rows >= first) & (rows <= last)
         minute[inside] = (rows[inside] - first) / fps / 60.0
     out = {"half": half, "minute": minute}
@@ -109,7 +107,9 @@ def context_features(tracking, tagging):
         out.update({name: np.full(len(rows), np.nan) for name in TAGGING_COLUMNS})
         return out
 
-    starts =tagging["start_frame"].to_numpy()
+    # Smart Tagging exists only for BAR-ATH, so its frame space is that match's video.
+    n_video = games.GAMES[tracking.meta.get("game", games.GAME)]["n_video_frames"]
+    starts = tagging["start_frame"].to_numpy()
     stops = tagging["end_frame"].to_numpy()
     codes = tagging["code"].to_numpy()
     teams = tagging["team"].to_numpy()
