@@ -291,3 +291,31 @@ def align(tactical, bcast, bcast_valid, params=None):
     }
     return Alignment(b_of_t=b_of_t, fit_of_t=fit_of_t, orientation=(flip, swap),
                      offsets=offsets, stats=stats)
+
+
+def ball_candidates(alignment, bcast_tracking, max_fit_m=2.0, frame0=0):
+    """B3 input from B8: the broadcast ball on the tactical timeline, one row per usable frame.
+
+    DataFrame with frame (tactical video frame = tactical row + `frame0`), x_m, y_m, conf and
+    source="broadcast". A tactical frame contributes when it has an aligned broadcast frame, the
+    per-frame player fit is <= `max_fit_m` and the broadcast ATD has a ball there. The ball gets
+    the orientation the alignment chose (flip_xy; swap_teams does not move the ball). conf falls
+    linearly from 1 at a perfect fit to 0.5 at `max_fit_m`.
+    """
+    import pandas as pd
+
+    b_of_t = np.asarray(alignment.b_of_t, dtype=np.int64)
+    fit = np.asarray(alignment.fit_of_t, dtype=np.float64)
+    pitch = bcast_tracking.meta.get("pitch", (105.3, 68.0))
+    bball = _orient(np.asarray(bcast_tracking.ball_xy, dtype=np.float64),
+                    bool(alignment.orientation[0]), pitch)
+    t = np.flatnonzero((b_of_t >= 0) & np.isfinite(fit) & (fit <= max_fit_m))
+    xy = bball[b_of_t[t]]
+    has = np.isfinite(xy).all(axis=1)
+    t, xy, f = t[has], xy[has], fit[t[has]]
+    if max_fit_m > 0:
+        conf = 1.0 - np.clip(f, 0.0, max_fit_m) / max_fit_m * 0.5
+    else:
+        conf = np.ones(len(t))
+    return pd.DataFrame({"frame": (t + int(frame0)).astype(np.int64), "x_m": xy[:, 0],
+                         "y_m": xy[:, 1], "conf": conf, "source": "broadcast"})
