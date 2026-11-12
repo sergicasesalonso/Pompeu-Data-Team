@@ -23,7 +23,11 @@ SECTIONS = {
     "limitations": r"^##\s*\d*\.?\s*limitations",
     "reproduction": r"^##\s*\d*\.?\s*reproduction",
 }
-FORBIDDEN = re.compile(r"\b(claude|agent|agents|anthropic|llm)\b", re.I)
+FORBIDDEN = re.compile(r"\b(claude|agent|agents|anthropic|llm|llms|gpt|chatgpt|copilot|codex)\b",
+                       re.I)
+# Text that only makes sense in a draft (DATA.md asks for "to verify" on unchecked claims).
+WORK_IN_PROGRESS = re.compile(r"to verify|in progress|being fitted|does not exist yet|not final yet",
+                              re.I)
 
 
 def read(path):
@@ -36,6 +40,8 @@ def check(paper_text, readme_text):
     out = []
     todo = len(re.findall(r"\bTODO\b", paper_text))
     out.append(("no open TODO", todo == 0, "{} TODO markers".format(todo)))
+    wip = sorted(set(m.group(0).lower() for m in WORK_IN_PROGRESS.finditer(paper_text)))
+    out.append(("no work-in-progress wording", not wip, "found: {}".format(wip or "none")))
     draft = bool(re.search(r"^>\s*DRAFT", paper_text, re.M))
     out.append(("no DRAFT banner", not draft, "banner present" if draft else "none"))
     missing = [k for k, rx in SECTIONS.items() if not re.search(rx, paper_text, re.I | re.M)]

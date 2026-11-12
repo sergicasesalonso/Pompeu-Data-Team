@@ -9,10 +9,10 @@ Estat: **proposta**, sense executar (el servidor no té dades). Tot el que diu �
 - `scripts/build_atd_plus.py` ja imprimeix un sha256 dels arrays (`tracking_hash`); v1 i v2 tenen hash anotat a `ESTAT.md`.
 - B1 (`pseudolabels.py`): píxels arrodonits a 0,1 px, divisió train/val per blocs de frame (sense aleatorietat).
 
-## Riscos concrets (1 i 2 ja corregits el 13-11 amb tests, `tests/test_line_b_guards.py`; el 3 segueix obert)
+## Riscos concrets (1 i 2 ja corregits el 12-11 amb tests sintètics, `tests/test_line_b_guards.py`; el 3 segueix obert)
 
 1. **Empats amb ordenació no estable** a `broadcast.align`: `np.argsort(-counts)` (modes de l'offset) fa servir quicksort per defecte. Amb empats de recompte, l'ordre pot canviar entre versions/CPU de numpy (kernels SIMD) i canvia l'ordre de `offsets`, i amb ell quin offset guanya un empat a `min(fits, ...)`. **Fet:** `kind="stable"`; amb empat queda primer el bin més petit (ordre de `np.unique`).
-2. **Hash sensible als bits de NaN**: `tracking_hash` fa `tobytes()` d'arrays amb NaN; un NaN pot tenir signe/payload diferent segons l'operació que el crea (`0/0` vs `np.nan`). Fix: canonitzar (`np.where(isnan(a), np.nan, a)`) abans de hashejar. Evita falsos «no coincideix». **Fet** (també -0.0 → 0.0); el hash és idèntic a l'antic quan els arrays ja eren canònics.
+2. **Hash sensible als bits de NaN**: `tracking_hash` fa `tobytes()` d'arrays amb NaN; un NaN pot tenir signe/payload diferent segons l'operació que el crea (`0/0` vs `np.nan`). Fix: canonitzar (`np.where(isnan(a), np.nan, a)`) abans de hashejar. Evita falsos «no coincideix». **Fet** (també -0.0 → 0.0); en una escena sintètica, el hash és idèntic a l'antic quan els arrays ja eren canònics. Si l'ATD real té algun -0.0, els hashes anotats canviaran: **per verificar** a la torre.
 3. **Llindars sobre valors sense arrodonir**: `fit <= max_fit_m`, `speed > max_speed_ms`, `median > ref_max_m`, `_reach`... Un canvi d'1e-12 pot canviar una decisió. A la CPU és estable, però un detector de GPU canvia al darrer bit. Fix: arrodonir les **entrades del tracker** (veure «Contracte»), no cada llindar.
 
 ## Contracte d'arrodoniment (abans del tracker)
@@ -27,7 +27,7 @@ Estat: **proposta**, sense executar (el servidor no té dades). Tot el que diu �
 
 ## Proves (per ordre de cost; totes a la torre, només mètriques)
 
-1. **ATD+ dues vegades, mateixa màquina** (CPU): `build_atd_plus.py` ×2 → mateix `tracking_hash`. (Ja fet per a v1/v2; repetir amb el detector.)
+1. **ATD+ dues vegades, mateixa màquina** (CPU): `build_atd_plus.py` ×2 → mateix `tracking_hash`. (**Per verificar:** `ESTAT.md` només anota un hash per versió, no consta cap execució doble. Fer-ho per a v1/v2 i, si n'hi ha, amb el detector.)
 2. **Sensibilitat**: afegir soroll uniforme de ±0,05 px i ±0,0005 de conf a les deteccions (llavor fixa), passar-les per l'arrodoniment + `augment_ball`, i informar **% de frames puntuats amb pilota que canvien** i quants frames del CSV final canvien. Si és ~0, l'arrodoniment basta; si no, llindars amb marge.
 3. **Detector, dues execucions a la mateixa GPU**: mateix hash de les deteccions arrodonides.
 4. **GPU vs CPU** (inferència): fracció de deteccions que canvien després d'arrodonir i mateix `tracking_hash` de l'ATD+. Si el detector no és bit-idèntic entre GPU i CPU, decidir: (a) publicar l'ATD+ amb hash (no es pot: és derivat del partit), o (b) exigir la GPU/versions anotades. Això és decisió del Martí/equip.

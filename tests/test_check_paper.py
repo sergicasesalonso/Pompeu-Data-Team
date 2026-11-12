@@ -44,6 +44,12 @@ def test_open_items_are_reported():
     assert not r["no mention of agents or LLMs"]
 
 
+def test_work_in_progress_wording_is_reported():
+    r = _by_name(cp.check(GOOD.replace("x\n## 3.", "the fit is in progress (to verify)\n## 3."),
+                          "readme " + SHA))
+    assert not r["no work-in-progress wording"]
+
+
 def test_missing_section_is_reported():
     r = _by_name(cp.check(GOOD.replace("## 5. Limitations", "## 5. Notes"), "readme " + SHA))
     assert not r["six SUBMISSION.md sections"]

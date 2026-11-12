@@ -1,4 +1,4 @@
-# Lectura crítica de `paper/PompeuDataTeam.md` — només propostes (13-11)
+# Lectura crítica de `paper/PompeuDataTeam.md` — només propostes (12-11, nit)
 
 No he reescrit el paper. Cada punt diu on és i què proposo. Comprovat contra codi, `results/leaderboard.csv`, `equip/ESTAT.md`, `EVALUATION.md` i `SUBMISSION.md`. Sense dades del partit.
 
@@ -49,8 +49,15 @@ Sense font al que he llegit:
 
 Taula de datasets amb llicències, dir què s'ha descartat, la nota sobre per què Metrica 3 és el de test, l'avís que les xifres absolutes de l'extern només es comparen amb el mateix `min_possession_s`, i la secció de neteja (cada regla amb el seu paràmetre).
 
-## F. Actualització (13-11, nit)
+## F. Actualització (12-11, nit)
 
-- Corregits al paper (commit 47388e9): descripció de `val` (només J03WN1), la frase del 0,04 i la del llindar de 5 s; «every choice» → «every comparison between methods». Pendent de Martí (no tocat): tallar el paper, Línia B sí/no, valor final de `min_possession_s` i `dead_weight`.
+- Corregits al paper (commit 0e100d1): descripció de `val` (només J03WN1), la frase del 0,04 i la del llindar de 5 s; «every choice» → «every comparison between methods». Pendent de Martí (no tocat): tallar el paper, Línia B sí/no, valor final de `min_possession_s` i `dead_weight`.
 - **Verificats contra `PARAMS` del codi** (de B, «sense font»): A3 (`speed_ref` 1,4; `out_llr` 8; `absent_llr` 0,5; `still_spot_llr` 2 / `still_llr` 0,5; set piece 3 s +1; `goal_llr` 2; `pre_kickoff_llr` 8; kick −4 durant 1,5 s, 4 m/s, 0,5 s, 2 m; vida mitjana 40 s i 20 s; `min_live_gap_s` 5), A4 (3 m/s, 30°, 2 m, 80/20 amb `pitch_control_weight` 0,2; control 1,5 m / 0,6 s), `rules_v0` (3 s, 15 m/s, `min_team_confidence` 0,3 ≡ P(home) fora de 0,35–0,65) i HSMM (medianes 8 s / 20 s, mínims 0,2 / 1 s, 0,3 / 0,7, 0,98, 4 m, 2,5 m, `tag_tau_s` 5, `a3_segment_llr` 3). Tot coincideix amb §5. No he comprovat «ball more than 0.5 m outside the pitch» (a `deadball.py`, no és a `PARAMS`).
 - Segueixen sense font: «1.911 de 2.043 salts» i «89 % de velocitat buida».
+
+## G. Revisió independent dels canvis d'aquesta nit (12-11) i correccions
+
+Una segona lectura, independent de la meva, va trobar errors meus. Corregits:
+- Paper: la limitació nova citava la finestra pública estressada (0,506 → 0,294), cosa que contradiu §6 («no longer used»); ara cita el banc extern (0,438 amb 20 % de pilota absent → 0,387 amb 50 %). «Clearly first» → les diferències (0,017 i 0,013, sense intervals). S'explica per què la fila del 41 % de la taula de cobertura (0,396 / 0,390) no és la columna de 5 s de la de `min_possession_s` (0,400 / 0,386): el sweep és niat i amb una log-normal de forats. «Graded» → «in-half» frames a la taula de cobertura. §1 ara remet a §5 (`a3_segment_llr`) i §6. Coma que faltava a §2. «to check that two runs match» → «to verify».
+- **Nou, per a §7:** la fila de `hsmm_v1_rules` del leaderboard (`766b069`) té `external_matches = J03WMX,J03WN1,J03WPY`: inclou J03WN1 (de `val`) i no Metrica 3. **No és del split `test`** i no pot anar a la taula tal com és: cal tornar-la a executar (`tower_validate.sh` ja la inclou).
+- Un test meu (`test_atdplus_configs_do_not_clean_again`) no comprovava res: mirava claus de primer nivell i `clean:` va dins de `pipeline:`. Arreglat amb `yaml.safe_load`, i un test nou demostra que la guarda pot fallar.

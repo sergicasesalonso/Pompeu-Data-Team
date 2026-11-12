@@ -1,11 +1,11 @@
 # Revisió de `fuse.py`, `broadcast.py` i `build_atd_plus.py` — només propostes
 
-Llegits sense executar res i sense canviar-los (13-11). Res d'això afecta `rules_v0`. Ordenat per valor.
+Llegits sense executar res (12-11, nit). Després, amb el sí de Martí, s'han aplicat els punts 1 i 2; la resta segueixen sent propostes. Res d'això afecta `rules_v0`. Ordenat per valor.
 
 ## Correcció / determinisme
-1. `broadcast.align`: `np.argsort(-counts)` no és estable → ordre dels offsets pot variar amb empats. Usar `kind="stable"`. **Fet (13-11).**
-2. `build_atd_plus.tracking_hash`: NaN amb bits diferents donen hashes diferents. Canonitzar NaN abans de `tobytes()`. **Fet (13-11).**
-3. `broadcast.ball_candidates`: `_ball_speed` deixa NaN als extrems de cada gravació i el filtre `fast = isfinite(v) & (v > max)` deixa passar aquests frames sense filtrar. Només 2 files per tall, però són punts al límit d'un tall de càmera, on la pilota és menys fiable. Proposta: tractar-los com a no filtrables només si el veí immediat és bo, o descartar-los (conservador).
+1. `broadcast.align`: `np.argsort(-counts)` no és estable → ordre dels offsets pot variar amb empats. Usar `kind="stable"`. **Fet (12-11).**
+2. `build_atd_plus.tracking_hash`: NaN amb bits diferents donen hashes diferents. Canonitzar NaN abans de `tobytes()`. **Fet (12-11).**
+3. `broadcast.ball_candidates`: `_ball_speed` és una diferència central sobre **tota** la línia de temps del broadcast, així que és NaN als dos extrems de la gravació i a **qualsevol frame amb un veí sense pilota**; el filtre `fast = isfinite(v) & (v > max)` deixa passar tots aquests frames sense filtrar. Pot ser molt més que un parell de files: és cada vora de cada forat de pilota del broadcast. (Als talls de càmera, en canvi, la diferència creua el tall i probablement sí que es filtra.) Proposta: a la vora d'un forat, fer servir la diferència d'un sol costat (endavant o enrere) en lloc de NaN. A mesurar a la torre: quants candidats tenen `v` NaN (només el recompte).
 
 ## Claredat / manteniment
 4. `fuse.augment_ball(..., H=None)`: el paràmetre `H` s'ignora (`del H`). Treure'l, o documentar que és per simetria i que els tests no el passin.

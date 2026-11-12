@@ -5,6 +5,7 @@ import os
 
 import numpy as np
 import pandas as pd
+import yaml
 
 from pompeu import paths
 from pompeu.vision import fuse
@@ -59,12 +60,20 @@ def test_all_candidates_outside_the_tracking_are_ignored():
 
 def test_atdplus_configs_do_not_clean_again():
     # build_atd_plus saves an ALREADY CLEANED Tracking; a `clean:` key would clean it twice.
+    # `clean:` lives under `pipeline:` (pompeu/pipeline.py reads pipeline_cfg["clean"]).
     files = sorted(glob.glob(os.path.join(paths.ROOT, "configs", "*_atdplus.yaml")))
     assert files
     for f in files:
         with open(f) as fh:
-            keys = [line.split(":")[0].strip() for line in fh if line.strip() and not line.startswith((" ", "#"))]
-        assert "clean" not in keys, f
+            cfg = yaml.safe_load(fh)
+        assert "clean" not in cfg, f
+        assert "clean" not in (cfg.get("pipeline") or {}), f
+
+
+def test_clean_guard_would_catch_a_plain_config():
+    # The guard above must be able to fail: rules_v0.yaml does clean.
+    with open(os.path.join(paths.ROOT, "configs", "rules_v0.yaml")) as fh:
+        assert "clean" in yaml.safe_load(fh)["pipeline"]
 
 
 # -- tracking_hash (scripts/build_atd_plus.py) -----------------------------------------------------
@@ -132,6 +141,7 @@ def test_hash_still_detects_real_changes():
 
 
 def test_hash_equals_legacy_when_arrays_are_canonical():
-    # So the hashes already recorded (ESTAT.md) stay valid whenever the arrays had canonical NaN.
+    # Synthetic only: the recorded hashes (ESTAT.md) stay valid IF the real arrays had no -0.0
+    # and no non-canonical NaN. To verify on the tower by re-hashing the saved v1/v2 files.
     tr = _scene()
     assert build_atd_plus.tracking_hash(tr) == _legacy_hash(tr)
