@@ -14,14 +14,10 @@ from dataclasses import replace
 
 import numpy as np
 
-from pompeu import paths  # noqa: F401
-import games
-
 
 def attack_flip(tracking, team):
     """(N,) bool: True where `team` (0 home, 1 away) attacks towards -x and must be rotated."""
-    second_start = dict((half, first) for half, first, _ in games.half_video_blocks(
-        tracking.meta.get("game", games.GAME)))[2]
+    second_start = dict((half, first) for half, first, _ in tracking.half_blocks())[2]
     half = np.where(tracking.frames >= second_start, 2, 1)
     return np.where(half == 1, tracking.attack_sign(team, 1), tracking.attack_sign(team, 2)) < 0
 

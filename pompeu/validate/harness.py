@@ -3,7 +3,8 @@
     public_clean       the public window as provided. Checks the pipeline is right; never chooses.
     public_stress      the public window with the ball erased to 30/50/70% (stress.py), 20 seeds
                        per level. The bench closest to what the full match looks like.
-    external           degraded external matches (A6). THE bench that decides. Pending until A6.
+    external           IDSSE/DFL matches (A6) degraded to look like our ATD, scored against their own
+                       per-frame BallStatus/BallPossession. THE bench that decides.
     full_match_sanity  no ground truth: possession count, mean duration, %D, home share, and
                        whether they sit in the expected ranges.
 
@@ -40,7 +41,12 @@ DEFAULTS = {
                    # Seconds of untouched tracking either side of the window, so methods with a
                    # temporal context see the same neighbourhood as on the full match.
                    "context_s": 60},
-        "external": {"datasets": []},
+        # "auto": every IDSSE match found in data/external/idsse (scripts/prepare_external.py);
+        # or a list of match ids; [] switches the bench off. Each match is degraded `seeds`
+        # times (pompeu.external.degrade) before the method sees it.
+        # min_possession_s maps DFL's touch-level possession onto the challenge's control rule
+        # (pompeu.external.dfl.align_labels): 5 s matches the public window's possession rate.
+        "external": {"datasets": "auto", "seeds": 2, "degrade": {}, "min_possession_s": 5.0},
         # Expected on a real full match (guía, 0.4). Outside these is a red flag, not a score.
         "sanity": {"possessions": [300, 400], "dead_pct": [35.0, 45.0]},
     },
@@ -137,11 +143,67 @@ def bench_public_stress(cfg, tracking, gt_codes, n_draws, verbose=False):
     return out
 
 
-def bench_external(cfg):
-    """Placeholder until A6 registers degraded external matches in validation.external."""
-    if not cfg["validation"]["external"]["datasets"]:
-        return {"status": "pending: no external datasets yet (stage A6)"}
-    raise NotImplementedError("external bench arrives with A6 (pompeu/external)")
+def external_matches(setting):
+    """IDSSE match ids the external bench uses: 'auto' = every match downloaded."""
+    from pompeu.external import dfl
+    if setting == "auto":
+        out = []
+        for match_id in dfl.MATCHES:
+            try:
+                dfl.files(match_id)
+                out.append(match_id)
+            except IOError:
+                continue
+        return out
+    return list(setting or [])
+
+
+def bench_external(cfg, run_lengths, n_draws, verbose=False):
+    """The bench that decides (plan, stage 0.4): degraded external matches with real labels.
+
+    Every match is degraded with each seed and run through the pipeline exactly as BAR-ATH is.
+    The matches of one seed are scored together -- concatenated with an X frame between them, so
+    no segment crosses from one match to the next -- and the interval is the same two-level
+    bootstrap as public_stress (seeds and ground-truth possessions).
+    """
+    from pompeu.external import degrade, dfl
+    settings = cfg["validation"]["external"]
+    matches = external_matches(settings["datasets"])
+    if not matches:
+        return {"status": "pending: no external matches (run scripts/prepare_external.py)"}
+
+    gt_parts, cleans = [], []
+    for match_id in matches:
+        tracking, labels = dfl.load(match_id)
+        graded = np.where(tracking.half() > 0, labels, pm.X).astype(np.int8)
+        gt_parts.append(dfl.align_labels(graded, settings.get("min_possession_s", 0.0),
+                                         tracking.meta.get("fps", 25)))
+        cleans.append((tracking, labels))
+    gap = np.full(1, pm.X, dtype=np.int8)
+    gt = np.concatenate([part for g in gt_parts for part in (g, gap)])
+
+    preds, scores = [], []
+    for seed in range(int(settings["seeds"])):
+        parts = []
+        for index, (tracking, labels) in enumerate(cleans):
+            degraded = degrade.degrade(tracking, labels, 1000 * seed + index, run_lengths,
+                                       settings.get("degrade"))
+            parts += [gt_io.labels_to_codes(pipeline.predict(degraded, cfg["pipeline"])), gap]
+        pred = np.concatenate(parts)
+        preds.append(pred)
+        scores.append(_scores(gt, pred))
+        if verbose:
+            print("  external seed {}: spellF1 {:.4f}".format(seed, scores[-1]["spell"]))
+    ci = bootstrap.intervals(gt, preds, n_draws)
+    return {
+        "spell": float(np.mean([s["spell"] for s in scores])),
+        "macro": float(np.mean([s["macro"] for s in scores])),
+        "poss": float(np.mean([s["poss"] for s in scores])),
+        "gt_poss": scores[0]["gt_poss"],
+        "spell_lo": ci["spell"][0], "spell_hi": ci["spell"][1],
+        "macro_lo": ci["macro"][0], "macro_hi": ci["macro"][1],
+        "matches": ",".join(matches), "seeds": len(preds),
+    }
 
 
 def bench_full_match_sanity(cfg, full_codes, game=games.GAME):
@@ -192,7 +254,7 @@ def run(cfg, tracking=None, gt_path=paths.PUBLIC_GT, save=True, verbose=True):
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "public_clean": bench_public_clean(gt_codes, full_codes, n_draws),
         "public_stress": bench_public_stress(cfg, tracking, gt_codes, n_draws, verbose),
-        "external": bench_external(cfg),
+        "external": bench_external(cfg, stress.missing_run_lengths(tracking), n_draws, verbose),
         "full_match_sanity": bench_full_match_sanity(cfg, full_codes),
     }
     result["runtime_s"] = round(time.time() - started, 1)
@@ -219,7 +281,9 @@ def flatten(result):
         for key in ("spell", "spell_lo", "spell_hi", "macro", "macro_lo", "macro_hi", "poss"):
             row[prefix + key] = scores[key]
     external = result["external"]
-    row["external_spell"] = external.get("spell")
+    for key in ("spell", "spell_lo", "spell_hi", "macro", "macro_lo", "macro_hi", "poss",
+                "gt_poss", "matches", "seeds"):
+        row["external_" + key] = external.get(key)
     row["external_status"] = external.get("status", "ok")
     for key, value in result["full_match_sanity"].items():
         row["full_" + key] = value
@@ -258,7 +322,13 @@ def format_result(result):
         lines.append("  {:<22} {:<24} {:<24} {:>6.1f}".format(
             "public_stress {:.0%}".format(level), interval(scores, "spell"),
             interval(scores, "macro"), scores["poss"]))
-    lines.append("  {:<22} {}".format("external", result["external"].get("status", "")))
+    external = result["external"]
+    if "spell" in external:
+        lines.append("  {:<22} {:<24} {:<24} {:>6}".format(
+            "external", interval(external, "spell"), interval(external, "macro"),
+            "{:.0f}/{}".format(external["poss"], external["gt_poss"])))
+    else:
+        lines.append("  {:<22} {}".format("external", external.get("status", "")))
     sanity = result["full_match_sanity"]
     lines.append("  {:<22} {} possessions, mean {:.1f} s, D {:.1f}%, home {:.1%}, X on graded {}"
                  "  -> {}".format("full_match_sanity", sanity["poss"], sanity["dur_s"],

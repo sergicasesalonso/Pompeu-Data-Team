@@ -74,7 +74,6 @@ from scipy.stats import lognorm
 from pompeu.decode import viterbi as sm
 from pompeu.events import deadball, touches
 from pompeu.features.build import build_features
-import games
 
 # Params
 STATES = ("HL", "AL", "HD", "AD")
@@ -231,7 +230,7 @@ def decode(tracking, hsmm=None, deadball_params=None, touches_params=None):
     F = build_features(tracking, with_windows=False,
                        groups=("ball", "proximity", "pitch_control", "collective", "context"))
     dead = deadball.detect(tracking, F=F, params=deadball_params)
-    dead_cues = deadball.evidence(F, fps, deadball_params)
+    dead_cues = deadball.evidence(F, fps, deadball_params, tracking.half_blocks())
     # A kick inside one of A3's dead stretches is a ball handled during the stoppage, which A3
     # already ruled out as a restart: it is not live evidence here either.
     dead_cues["kick"] = np.where(dead.dead, 0.0, dead_cues["kick"])
@@ -256,7 +255,7 @@ def decode(tracking, hsmm=None, deadball_params=None, touches_params=None):
         posterior[:, 2] = 1.0
     segments = []
     frames = tracking.frames
-    for _, first, last in games.half_video_blocks(tracking.meta.get("game", games.GAME)):
+    for _, first, last in tracking.half_blocks():
         rows = np.flatnonzero((frames >= first) & (frames <= last))
         if not len(rows):
             continue

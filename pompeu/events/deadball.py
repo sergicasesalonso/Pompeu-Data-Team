@@ -197,7 +197,7 @@ def in_six_yard_box(F):
         return (x_line >= 0) & (x_line < SIX_YARD_DEPTH) & (np.abs(y - 34.0) < SIX_YARD_HALF_WIDTH)
 
 
-def evidence(F, fps, params=None):
+def evidence(F, fps, params=None, blocks=None):
     """{cue: (N,) log-odds for DEAD}. Sum them for the HMM's per-frame evidence."""
     p = _settings(params)
     n = len(F)
@@ -224,22 +224,23 @@ def evidence(F, fps, params=None):
     for frame in kicks:
         kick[frame:frame + hold] = p["kick_llr"]
     out["kick"] = kick
-    out["pre_kickoff"] = pre_kickoff(F, kicks, p)
+    out["pre_kickoff"] = pre_kickoff(F, kicks, p, blocks)
     return out
 
 
-def pre_kickoff(F, kicks, p):
+def pre_kickoff(F, kicks, p, blocks=None):
     """Dead evidence from each half's first graded frame to its kick-off kick.
 
     The kick-off is the first kick inside the half's "Kick Off (Start)" Smart Tagging phase (or
     the phase's start when no kick is seen there). Needs the half's true first frame to be in F,
-    so a crop that starts mid-half gets nothing.
+    so a crop that starts mid-half gets nothing. blocks: Tracking.half_blocks(), BAR-ATH's if None.
     """
     import games
+    blocks = games.half_video_blocks(games.GAME) if blocks is None else blocks
     out = np.zeros(len(F))
     frames = F.index.to_numpy()
     tag = _col(F, "sp_kickoff_start") > 0
-    for half, first, _ in games.half_video_blocks(games.GAME):
+    for half, first, _ in blocks:
         rows = np.flatnonzero(frames == first)
         if not len(rows):
             continue
@@ -248,7 +249,8 @@ def pre_kickoff(F, kicks, p):
         if not len(tagged):
             continue
         tag_start = int(tagged[0])
-        tag_stop = tag_start + int(np.argmin(tag[tag_start:])) if not tag[tag_start:].all()             else len(F)
+        tag_stop = (tag_start + int(np.argmin(tag[tag_start:])) if not tag[tag_start:].all()
+                    else len(F))
         inside = kicks[(kicks >= max(start, tag_start - 1)) & (kicks < tag_stop)]
         stop = int(inside[0]) if len(inside) else tag_start
         out[start:stop] = p["pre_kickoff_llr"]
@@ -445,7 +447,7 @@ def detect(tracking, F=None, params=None, tags="auto", extra_llr=None):
         tagging = load_tagging_for(tracking)
         tags = None if tagging is None else tagging[tagging["code"] == "SET PIECES"]
 
-    cues = evidence(F, fps, p)
+    cues = evidence(F, fps, p, tracking.half_blocks())
     if extra_llr is not None:
         cues["extra"] = np.nan_to_num(np.asarray(extra_llr, dtype=np.float64))
     scale = 1.0 / (p["evidence_tau_s"] * fps)
