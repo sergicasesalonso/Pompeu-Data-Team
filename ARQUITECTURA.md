@@ -201,6 +201,24 @@ Un balón muerto también tiene equipo: el que reinicia (lo dice CHALLENGE.md). 
 - **Configs:** `configs/hsmm_v1.yaml` y `configs/hsmm_v1_rules.yaml`. Los parámetros se cambian en `params: {hsmm: {...}, deadball: {...}, touches: {...}}`. Ninguno se ha ajustado con la GT: son valores físicos o del plan, y el único que se ha elegido con `public_stress` es el peso de la segmentación de A3 (3).
 - **Entorno:** numba 0.66 está fijado en `requirements.lock`. En Windows, crea el venv en una ruta corta (por ejemplo `C:\venvs\pompeu`): si la ruta es larga, la DLL de numba supera el límite de 260 caracteres y no carga.
 
+## Fusión de balón (B3)
+
+`augment_ball(tracking, candidatos) → (Tracking, informe)` en `pompeu/vision/fuse.py`. Añade frames con balón al `Tracking` limpio y devuelve otro `Tracking` con el mismo contrato, así que todos los métodos de la Línea A funcionan sin cambios. Los candidatos son tablas `frame, x_m, y_m, conf, source` (`"video"` para el detector B2 y `"broadcast"` para el ATD de broadcast alineado). `video_candidates_to_metres(df_px, H)` pasa la salida del detector (píxeles, top-k por frame) a metros con la homografía de cada frame.
+
+| Paso | Qué hace (valores por defecto) |
+|---|---|
+| El ATD manda | En un frame donde el ATD ve el balón no se toca nada. Los candidatos de ese frame solo se cuentan: de acuerdo (≤ 1 m) o en conflicto |
+| Filtro físico | El candidato tiene que poder alcanzarse desde el balón ATD anterior y desde el siguiente a 35 m/s + 1 m |
+| Soporte | Se enlazan candidatos (y los balones ATD cercanos) a ≤ 3 frames y dentro de ese alcance. Las componentes conexas son tracklets, y si una cubre < 3 frames distintos se descarta. Así cae un candidato aislado de un solo frame |
+| Elección | En cada frame gana el candidato del tracklet más fuerte (suma de `conf`, cada balón ATD vale 1). Si empatan, decide la `conf` y luego el orden de las fuentes. Es determinista |
+| Coherencia | Sobre la traza combinada se quitan los puntos nuevos que no alcanzan a ninguno de sus dos vecinos y los fragmentos solo nuevos de < 3 frames. Los puntos ATD nunca se quitan |
+| Huecos | Los huecos de ≤ 1,5 s que tocan un punto nuevo se rellenan en línea recta si se pueden cruzar a 35 m/s. Los huecos entre dos balones ATD siguen como los dejó A1 |
+
+- **Códigos:** todo candidato aceptado (detector o broadcast) lleva `ball_source = video` y confianza `conf · 0,8`. Los rellenos llevan `interp` y 0,5. El informe da los recuentos por fuente. Falta decidir si el contrato debe tener un código `broadcast` propio.
+- **Informe:** solo recuentos (frames con balón antes y después, aceptados por fuente, rechazados por motivo, interpolados y cobertura de los frames puntuados). La salida es por frame, así que va a `cache/` y nunca a git.
+- **Rendimiento:** numpy vectorizado. En un partido sintético de 199.319 frames tarda menos de 1 s.
+- **Tests:** `python -m pytest tests/test_fuse.py` (solo sintéticos).
+
 ## Bancos de validación
 
 | Banco | Para qué |
