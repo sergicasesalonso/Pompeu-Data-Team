@@ -9,7 +9,7 @@ More Than A Hack 2027, Phase 1 · Martí, Sergi, Ander · Code: https://github.c
 
 - **Task:** label each of the 199,319 frames of the tactical video `H`, `A`, `D` or `X`. Submissions are ranked on spellF1.
 - **Submission:** `configs/final.yaml`. It currently matches `configs/rules_v0.yaml`, i.e. A1 cleaning, the A3 dead-ball HMM and the A4 possession state machine. **TODO:** final method name and its external `test` spellF1 and macroF1.
-- **Approach.** First we clean the automatic tracking. A two-state HMM then segments live and dead ball. Next we detect touches and sustained controls with their team, and turn them into possessions. That step uses either a rule-based state machine that encodes the challenge's control rule, or a hidden semi-Markov model (HSMM) that combines the same cues with ball-free evidence. Every choice is made on a bench of **other** matches with provider labels (DFL/IDSSE, Metrica). Before scoring, those matches are degraded until they look like our tracking. Line B adds ball observations taken from the video and the broadcast by code. Measured on the external bench, it only matters if it fills many gaps (§4).
+- **Approach.** First we clean the automatic tracking. A two-state HMM then segments live and dead ball. Next we detect touches and sustained controls with their team, and turn them into possessions. That step uses either a rule-based state machine that encodes the challenge's control rule, or a hidden semi-Markov model (HSMM) that combines the same cues with ball-free evidence. Every comparison between methods is made on a bench of **other** matches with provider labels (DFL/IDSSE, Metrica); the few conventions that were set from the public window are listed in §6. Before scoring, those matches are degraded until they look like our tracking. Line B adds ball observations taken from the video and the broadcast by code. Measured on the external bench, it only matters if it fills many gaps (§4).
 
 ## 2. Approach and why
 
@@ -153,14 +153,14 @@ The restarting team comes from Smart Tagging first, then geometry, then the play
 **Splits** are by whole match and fixed (`pompeu/external/__init__.py`):
 
 - `test` (DFL J03WMX, J03WPY, Metrica 3) decides and is never trained or tuned on;
-- `val` (DFL J03WN1, Metrica 2) fits the few weights and is used for early stopping;
+- `val` (DFL J03WN1; Metrica 2 is planned but could not be downloaded, so every `val` number in this document is from J03WN1 alone) fits the few weights and is used for early stopping;
 - `train` (DFL J03WOH, J03WQQ, J03WOY, J03WR9, Metrica 1) is used by everything that learns.
 
 The test Metrica match is game 3 because games 1 and 2 have the ball glued to the carrier: the median distance to the nearest player is 0.28 m, against 1.4 m on DFL and 1.9 m on our ATD.
 
 **Label conventions.**
 
-- **DFL:** `BallPossession` changes on almost every touch, 8.4 possessions per live minute against 4.2 in the challenge's public reference (17 possessions in 4.0 live minutes). `align_labels` gives a possession shorter than `min_possession_s` = 5 s, sandwiched between two possessions of the other team with no stoppage in between, to the surrounding team. This brings DFL to 4.26 possessions per live minute. The 5 s value was set to match the public window's possession rate, a description of the label convention rather than a fit of any method.
+- **DFL:** `BallPossession` changes on almost every touch, 8.4 possessions per live minute against 4.2 in the challenge's public reference (17 possessions in 4.0 live minutes). `align_labels` gives a possession shorter than `min_possession_s` = 5 s, sandwiched between two possessions of the other team with no stoppage in between, to the surrounding team. This brings DFL to 4.26 possessions per live minute. The 5 s value was set to match the possession rate of the public reference, so it does come from the public window, although no method was tuned on it. It matters: it changes the ranking between the top methods (see the sensitivity below), so we report the 0–8 s range and not only the 5 s result.
 - **Degradation:** the ball-loss weighting towards dead frames (`dead_weight`) was first set from a rate measured on the public window: 34% of dead frames have no ball, against about 6% of live ones. It has been re-measured without any label, using our own A3 dead/live segmentation on the full match (`scripts/ball_missing_by_state.py`): the ball is absent on 74.7% of dead frames and 12.0% of live ones, a ratio of 6.2. **TODO:** state which value the final configuration uses (the current default in `degrade.py` is 5.0).
 - **Sensitivity to `min_possession_s`** (`scripts/min_possession_sensitivity.py`, external `val`, 5 seeds). The threshold cannot be fixed from the public window, and it moves the ranking of the three best methods:
 
@@ -203,7 +203,7 @@ External bench, `test` split (DFL J03WMX, J03WPY, Metrica 3), 2 degradation seed
 | `hsmm_v1_fit` | **TODO** | **TODO** | **TODO** | **TODO** |
 | **final** | **TODO** | **TODO** | **TODO** | **TODO** |
 
-The leaderboard also holds an earlier, DFL-only bench (J03WMX, J03WPY), on which `hsmm_v1` scored 0.440 and `deadball_vote125` 0.390. That bench is superseded by the split above and the scores are not comparable. We accept a change only if it improves on the external `test` bench with non-overlapping intervals. spellF1 differences below about 0.04 are noise (EVALUATION.md).
+The leaderboard also holds an earlier, DFL-only bench (J03WMX, J03WPY), on which `hsmm_v1` scored 0.440 and `deadball_vote125` 0.390. That bench is superseded by the split above and the scores are not comparable. We accept a change only if it improves on the external `test` bench with non-overlapping intervals. Differences between intervals that overlap are not treated as real. (The organisers' 0.04 noise floor in EVALUATION.md refers to the full provided match, not to this bench.)
 
 ## 8. Limitations
 
