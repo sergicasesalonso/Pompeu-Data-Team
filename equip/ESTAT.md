@@ -3,7 +3,7 @@
 - **Entrega:** 17-11-2026, hora per confirmar. Congelació: dl 16-11, 12:00.
 - **Entrega actual:** `configs/final.yaml` (= `rules_v0`): `python scripts/make_submission.py --config configs/final.yaml --out PompeuDataTeam.csv` → sha256 `bfd5ff16006b1e5c50371abeb528195cdc7a60397ec8bed90a8fccc468269f41`. Verificat en un clon net (Python 3.11, cache buida).
 - **Entorn:** Python 3.11 + `requirements.lock`.
-- **Tests:** 139 passen, 1 saltat.
+- **Tests:** 147 passen, 1 saltat (amb dades); sense dades també passen tots.
 
 ## Línia B (Martí)
 
@@ -30,3 +30,9 @@
 | 20 % | 0,438 | 0,421 |
 
 +1 punt de cobertura ≈ +0,0025 spellF1 (rules_v0 +0,0032 a 41→37 %). El broadcast (+3 punts) val ~+0,01: dins del soroll. Falta Metrica 2 (no s'ha pogut descarregar).
+
+## Paràmetres que depenien de la ventana pública
+
+- `dead_weight` (degrade.py): mesurat sense GT amb l'A3 (`scripts/ball_missing_by_state.py`): pilota absent 74,7 % mort vs 12,0 % viu, ràtio 6,2.
+- `min_possession_s` (`scripts/min_possession_sensitivity.py`, val): mou el rànquing dels 3 primers; rules_v0 és el més robust. Decidir la config final mirant el rang 2–8 s.
+- `a3_segment_llr`: pendent de fer servir el valor ajustat a val.
