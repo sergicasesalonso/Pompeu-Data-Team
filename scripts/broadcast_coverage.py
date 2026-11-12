@@ -22,6 +22,7 @@ from starter import load_homography  # noqa: E402
 # Params
 GOOD_FIT_M = 2.0       # per-frame fit for an aligned frame to count
 NEAR_M = 2.0           # ball agreement threshold for the sanity check
+LAGS = range(-3, 4)    # frames, for the residual-lag sweep of the ball
 
 
 def main():
@@ -65,6 +66,14 @@ def main():
     print("sanity     {} graded frames where both see the ball: median distance {:.2f} m, "
           "{:.1%} within {} m".format(int(both.sum()), float(np.median(dist)) if len(dist) else float("nan"),
                                      float((dist < NEAR_M).mean()) if len(dist) else float("nan"), NEAR_M))
+    # Residual time lag: the broadcast ball read LAG frames later; the minimum should sit at 0.
+    sweep = []
+    for lag in LAGS:
+        b = al.b_of_t + lag
+        ok = both & (b >= 0) & (b < bc.n_frames)
+        dl = np.linalg.norm(tac.ball_xy[ok] - bball[b[ok]], axis=1)
+        sweep.append("{:+d}:{:.2f}".format(lag, float(np.median(dl)) if len(dl) else float("nan")))
+    print("lag sweep  median ball distance (m) by lag in frames  " + " ".join(sweep))
     print("KEY        graded frames without tactical ball: {}; with ball in the aligned broadcast: "
           "{} ({:.1%})".format(int(gap.sum()), int(gained.sum()), gained.sum() / max(gap.sum(), 1)))
     print("KEY        graded frames with a ball: tactical {:.1%} -> tactical + broadcast {:.1%}".format(

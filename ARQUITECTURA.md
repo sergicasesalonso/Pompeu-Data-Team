@@ -219,6 +219,24 @@ Un balón muerto también tiene equipo: el que reinicia (lo dice CHALLENGE.md). 
 - **Rendimiento:** numpy vectorizado. En un partido sintético de 199.319 frames tarda menos de 1 s.
 - **Tests:** `python -m pytest tests/test_fuse.py` (solo sintéticos).
 
+### Balón del broadcast (B8 → B3)
+
+`broadcast.align` pone el ATD de broadcast en el reloj táctico usando solo jugadores, y `broadcast.ball_candidates` convierte su balón en candidatos. Donde los dos ATD ven el balón (70.726 frames puntuados), la distancia mediana es 0,77 m y el 74,8 % queda a ≤ 2 m. Los jugadores alinean a 0,29 m. Hemos descartado que la causa sea la alineación:
+
+- **No hay desfase temporal.** Si se barre un desfase de −12 a +12 frames sobre el balón del broadcast, el mínimo cae en 0. La curva es simétrica (±1 frame: 0,84–0,85 m) y el residuo a lo largo del movimiento tiene una mediana de −0,01 m. Afinar el desfase por tramo apenas mejora en frames de validación (≤ 1 m: 57,4 % → 58,3 %).
+- **No depende del ajuste mientras este sea ≤ 1 m.** Las medianas quedan entre 0,70 y 0,95 m. Por encima de 1 m (el 2 % de los frames) sube a 2,3–3,1 m.
+- **Hay un suelo de ruido.** Cada eje tiene unos 0,45–0,5 m de error, más en profundidad (y) que a lo ancho (x). Con dos trackers independientes, eso da ~0,7 m de mediana. Por eso el umbral `agree_m` = 1 m de B3 marca como conflicto mucho ruido normal.
+- **La cola (> 2 m, el 25 %) va por episodios.** Se concentra en los balones rápidos, probablemente aéreos: a ≥ 25 m/s la mediana es de 6,5 m y el error en y es 2–3 veces el de x, como se espera de la altura pasada por una homografía de suelo. También se concentra en los balones lejos de cualquier jugador, en las dos fuentes. El balón táctico está a > 7 m de cualquier jugador en el 10 % de sus frames, el del broadcast en el 8 %, y los candidatos que solo tiene el broadcast en el 13 %.
+
+Filtros opcionales en `ball_candidates`, desactivados por defecto:
+
+| Filtro | Qué hace |
+|---|---|
+| `max_speed_ms` | Quita el balón del broadcast si su propia velocidad supera este valor |
+| `reference_xy` | En un frame sin balón táctico, quita el candidato si la mediana de su distancia al balón táctico supera `ref_max_m`. La mediana se calcula en el mismo tramo alineado y a ±`ref_window` filas. Los frames con balón táctico no se filtran, así que el recuento de acuerdo y conflicto sigue siendo una comprobación independiente |
+
+El balón táctico es un dato de entrada, no GT. `scripts/build_atd_plus.py` genera `cache/atd_plus_broadcast_v2.npz` con ajuste ≤ 1 m, velocidad ≤ 25 m/s y referencia ≤ 1,5 m a ±125 filas. Con huecos simulados de ~75 frames, el filtro de referencia por sí solo pasa el ≤ 2 m del 74,8 % al 80,7 %. Respecto a v1, los aceptados bajan de 5.805 a 4.356 y la cobertura puntuada pasa del 62,9 % al 62,1 %. v1 se puede regenerar con `--max-fit-m 2 --max-speed-ms 0 --ref-max-m 0`. Falta decidir cuál de las dos se usa validándolas en `public_stress`.
+
 ## Bancos de validación
 
 | Banco | Para qué |

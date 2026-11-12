@@ -63,3 +63,80 @@ def test_candidates_feed_augment_ball():
     assert report["accepted"] == 10
     assert report["accepted_per_source"] == {"broadcast": 10}
     assert plus.ball_present.all()
+
+
+def _line(n, y=30.0, step=0.4):
+    return np.column_stack((np.arange(n) * step, np.full(n, y)))
+
+
+def test_default_filters_are_off():
+    n = 50
+    bc = make_tracking(np.full((n, 2, 2), np.nan), np.array([0, 1]), _line(n, step=2.0))
+    al = _alignment(n, np.arange(n), np.zeros(n))
+    plain = broadcast.ball_candidates(al, bc)
+    df, st = broadcast.ball_candidates(al, bc, return_stats=True)
+    assert df.equals(plain)
+    assert st == {"candidates": n, "dropped_speed": 0, "dropped_reference": 0,
+                  "reference_no_evidence": 0, "kept": n}
+
+
+def test_speed_filter_drops_fast_broadcast_balls():
+    n = 20
+    ball = _line(n)                                  # 0.4 m/frame = 10 m/s
+    ball[10:] += [15.0, 0.0]                         # a 15 m jump between rows 9 and 10
+    bc = make_tracking(np.full((n, 2, 2), np.nan), np.array([0, 1]), ball)
+    al = _alignment(n, np.arange(n), np.zeros(n))
+    df, st = broadcast.ball_candidates(al, bc, max_speed_ms=25.0, return_stats=True)
+    assert st["dropped_speed"] == 2                  # rows 9 and 10 straddle the jump
+    assert 9 not in df["frame"].tolist() and 10 not in df["frame"].tolist()
+    assert len(df) == n - 2
+
+
+def test_reference_filter_drops_stretches_that_disagree_with_the_tactical_ball():
+    # Two shots: rows 0..99 at offset 0, rows 100..199 at offset 50 (a new run).
+    n = 200
+    b_of_t = np.r_[np.arange(100), np.arange(50, 150)]
+    bball = _line(200)
+    bc = make_tracking(np.full((200, 2, 2), np.nan), np.array([0, 1]), bball)
+    al = _alignment(n, b_of_t, np.zeros(n))
+    ref = bball[b_of_t].copy()                       # the tactical ball agrees in run 1 ...
+    ref[100:] += [0.0, 5.0]                          # ... and is 5 m off in run 2
+    ref[40:60] = np.nan                              # one gap per run
+    ref[140:160] = np.nan
+    df, st = broadcast.ball_candidates(al, bc, reference_xy=ref, ref_window=30, ref_max_m=1.5,
+                                       return_stats=True)
+    frames = set(df["frame"].tolist())
+    assert set(range(40, 60)) <= frames              # gap in the agreeing run: kept
+    assert not (set(range(140, 160)) & frames)       # gap in the disagreeing run: dropped
+    assert set(range(100, 140)) <= frames            # frames with a reference ball: never dropped
+    assert st["dropped_reference"] == 20
+
+
+def test_reference_filter_does_not_cross_runs():
+    # The disagreeing run 2 must not condemn the gap at the end of the agreeing run 1.
+    n = 120
+    b_of_t = np.r_[np.arange(60), np.arange(100, 160)]
+    bball = _line(200)
+    bc = make_tracking(np.full((200, 2, 2), np.nan), np.array([0, 1]), bball)
+    al = _alignment(n, b_of_t, np.zeros(n))
+    ref = bball[b_of_t].copy()
+    ref[60:] += [0.0, 5.0]
+    ref[50:60] = np.nan
+    df = broadcast.ball_candidates(al, bc, reference_xy=ref, ref_window=40)
+    assert set(range(50, 60)) <= set(df["frame"].tolist())
+
+
+def test_reference_filter_keeps_candidates_without_evidence():
+    n = 30
+    bc = make_tracking(np.full((n, 2, 2), np.nan), np.array([0, 1]), _line(n))
+    al = _alignment(n, np.arange(n), np.zeros(n))
+    ref = np.full((n, 2), np.nan)
+    ref[:3] = bc.ball_xy[:3] + [0.0, 9.0]            # 3 reference frames < ref_min_frames
+    df, st = broadcast.ball_candidates(al, bc, reference_xy=ref, return_stats=True)
+    assert len(df) == n
+    assert st["reference_no_evidence"] == n - 3
+
+
+def test_aligned_runs_split_on_offset_change_and_gaps():
+    run = broadcast._aligned_runs(np.array([-1, 0, 1, 2, 10, 11, -1, 12, 13]))
+    assert run.tolist() == [-1, 0, 0, 0, 1, 1, -1, 2, 2]
