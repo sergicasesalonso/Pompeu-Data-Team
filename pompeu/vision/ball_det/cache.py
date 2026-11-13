@@ -29,6 +29,25 @@ def prepare_cache(table, frames, directory, *, stride=5, metadata=None, **settin
     lookup = {int(row.frame): (dataset, index) for dataset in datasets
               for index, row in dataset.table.iterrows()}
     directory = Path(directory)
+    if directory.exists():
+        ready = directory/"ready.json"
+        keys = {"video_sha256", "b1_sha256", "config_sha256", "ffmpeg_version"}
+        if not ready.is_file() or not keys.issubset(metadata or {}):
+            raise FileExistsError("partial cache or missing source provenance; use a fresh cache")
+        cached = json.loads(ready.read_text(encoding="utf-8"))
+        same_settings = json.dumps(cached.get("settings"), sort_keys=True) == json.dumps(settings, sort_keys=True)
+        counts = {dataset.split: len(dataset) for dataset in datasets}
+        if (cached.get("version") != 2 or cached.get("metadata") != metadata
+                or not same_settings or cached.get("stride") != stride or cached.get("counts") != counts):
+            raise ValueError("existing cache provenance differs; refusing to overwrite")
+        if not (directory/"manifest.parquet").is_file():
+            raise ValueError("existing cache manifest is missing")
+        complete = all((directory/f"{int(row.frame):010d}_{variant:02d}.npz").is_file()
+                       for dataset in datasets for row in dataset.table.itertuples()
+                       for variant in range(1+dataset.negative_crops))
+        if not complete:
+            raise ValueError("existing cache is incomplete")
+        return counts
     directory.mkdir(parents=True, exist_ok=False)
     n_frames = settings["n_frames"]
     buffer, seen = deque(maxlen=n_frames), set()

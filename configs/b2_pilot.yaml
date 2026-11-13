@@ -1,0 +1,28 @@
+# Resource pilot on B1 train/val, not a final submission configuration.
+name: b2_pilot_v1
+seed: 0
+model:
+  n_frames: 3
+  width: 16
+data:
+  crop_shape: [256, 448]
+  stride: 25
+  negative_crops: 1
+  negative_margin: 16
+execution:
+  threads: 4
+train:
+  epochs: 2
+  batch_size: 8
+  lr: 0.001
+validation:
+  frame_stride: 25
+inference:
+  batch_size: 8
+  overlap: 32
+  top_k: 3
+  threshold: 0.5
+  radius: 4
+  frame_stride: 1
+artifact:
+  checkpoint_sha256: null

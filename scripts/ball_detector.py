@@ -26,12 +26,13 @@ def digest(path):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("stage", choices=["prepare", "train", "validate", "detect", "benchmark"])
+    parser.add_argument("stage", choices=["preflight", "smoke", "prepare", "train", "pin", "validate", "detect", "benchmark"])
     parser.add_argument("--config", default="configs/b2_temporal.yaml")
     parser.add_argument("--video", help="local video; required for prepare/detect")
     parser.add_argument("--device", default="cpu", choices=["cpu", "cuda"])
     parser.add_argument("--pseudolabels", help="local B1 parquet (default private cache)")
     parser.add_argument("--threads", type=int, help="override CPU thread count; recorded in checkpoints")
+    parser.add_argument("--steps", type=int, default=2, help="synthetic training smoke steps per repeat")
     args = parser.parse_args(argv)
     if args.stage in ("prepare", "validate", "detect") and not args.video:
         parser.error("--video is required for prepare/detect")
@@ -41,20 +42,51 @@ def main(argv=None):
         parser.error("canonical validation and inference require CPU")
     import yaml
     from pompeu import paths
-    from pompeu.vision.ball_det.model import set_deterministic
     from pompeu.vision.ball_det.provenance import checkpoint_pin, configuration_hash, verify_sources
     cfg = yaml.safe_load(Path(args.config).read_text(encoding="utf-8"))
     threads = args.threads if args.threads is not None else cfg.get("execution", {}).get("threads", 1)
-    set_deterministic(cfg["seed"], threads=threads)
     cfg_hash = configuration_hash(cfg)
+    root = Path(paths.CACHE_DIR)/"ball_det"/cfg_hash[:16]
+    if args.pseudolabels:
+        label_path = Path(args.pseudolabels)
+    else:
+        from pompeu.vision import pseudolabels
+        label_path = Path(pseudolabels.cache_path())
+    lock = Path(paths.ROOT)/("requirements-gpu.lock" if args.device == "cuda" else "requirements-cpu-torch.lock")
+    if args.stage == "preflight":
+        from pompeu.vision.ball_det.runtime import preflight
+        report = preflight(cfg, lock, root, args.device, args.video, label_path)
+        report["source_tree_clean"] = source_clean(paths.ROOT)
+        report["ready"] = report["ready"] and report["source_tree_clean"]
+        print(json.dumps(report))
+        return 0 if report["ready"] else 1
+    if args.stage in ("prepare", "train", "smoke", "validate", "detect"):
+        from pompeu.vision.ball_det.runtime import runtime_status
+        runtime = runtime_status(lock, root, args.device)
+        if not runtime["ready"] or not source_clean(paths.ROOT):
+            raise RuntimeError("clean source, writable cache and the approved runtime lock are required")
+    from pompeu.vision.ball_det.model import set_deterministic
+    set_deterministic(cfg["seed"], threads=threads)
+    if args.stage == "smoke":
+        from pompeu.vision.ball_det.smoke import training_smoke
+        report = training_smoke(cfg, args.device, args.steps, threads)
+        report.update(lock_sha256=runtime["lock_sha256"], environment_sha256=runtime["environment_sha256"])
+        print(json.dumps(report))
+        return 0 if report["exact_repeatability"] else 1
     if args.stage == "benchmark":
         benchmark(cfg, args.device, threads)
         return
-    commit = subprocess.run(["git", "-c", f"safe.directory={paths.ROOT}", "rev-parse", "HEAD"],
-                            cwd=paths.ROOT, capture_output=True, text=True, check=True).stdout.strip()
-    root = Path(paths.CACHE_DIR)/"ball_det"/cfg_hash[:16]
     root.mkdir(parents=True, exist_ok=True)
     clips, checkpoint = root/"clips", root/"best.pt"
+    if args.stage == "pin":
+        from pompeu.vision.ball_det.checkpoint import load_model
+        _, metadata = load_model(checkpoint)
+        if metadata.get("config_sha256") != cfg_hash:
+            raise ValueError("checkpoint does not belong to this experiment")
+        cfg.setdefault("artifact", {})["checkpoint_sha256"] = digest(checkpoint)
+        Path(args.config).write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
+        print(json.dumps({"checkpoint_sha256": cfg["artifact"]["checkpoint_sha256"], "commit_config_before_validation": True}))
+        return
     if args.pseudolabels:
         label_path = Path(args.pseudolabels)
     else:
@@ -85,12 +117,17 @@ def main(argv=None):
         from pompeu.vision.ball_det.cache import CachedB1Dataset
         from pompeu.vision.ball_det.model import TemporalHeatmapNet
         from pompeu.vision.ball_det.train import fit
+        safe_root = Path(paths.ROOT).resolve().as_posix()
+        commit = subprocess.run(["git", "-c", f"safe.directory={safe_root}", "rev-parse", "HEAD"],
+                                cwd=paths.ROOT, capture_output=True, text=True, check=True).stdout.strip()
         train, val = CachedB1Dataset(clips, "train", augment=True), CachedB1Dataset(clips, "val")
         verify_sources(train.metadata, cfg_hash, label_path, args.video)
         model = TemporalHeatmapNet(**cfg["model"])
         print(json.dumps({"parameters": sum(p.numel() for p in model.parameters()), "device": args.device}))
         fit(model, train, val, checkpoint, seed=cfg["seed"], device=args.device,
-            metadata={**train.metadata, "code_commit": commit, "execution": {"threads": threads}},
+            metadata={**train.metadata, "code_commit": commit, "execution": {"threads": threads},
+                      "runtime_lock_sha256": runtime["lock_sha256"], "runtime_environment_sha256": runtime["environment_sha256"],
+                      "runtime_versions": {k: runtime.get(k) for k in ("python_version", "torch_version", "cuda_build", "driver_version")}},
             report=lambda metrics: print(json.dumps(metrics)), **cfg["train"])
         print(json.dumps({"checkpoint_sha256": digest(checkpoint)}))
     else:
@@ -110,10 +147,14 @@ def main(argv=None):
             from pompeu.vision.ball_det.predict import BallDetector
             from pompeu.vision.ball_det.validation import evaluate_frames
             table = pd.read_parquet(label_path)
-            detector = BallDetector(model, crop_shape=tuple(cfg["data"]["crop_shape"]), **cfg["inference"])
+            if not source_clean(paths.ROOT):
+                raise RuntimeError("commit source/configuration before formal validation")
+            stride = cfg.get("validation", {}).get("frame_stride", cfg["inference"].get("frame_stride", 1))
+            detector = BallDetector(model, crop_shape=tuple(cfg["data"]["crop_shape"]),
+                                     **{**cfg["inference"], "frame_stride": stride})
             metrics = evaluate_frames(detector, iter_video(args.video, info), table,
                                        block_frames=int(round(info["fps"]*pseudolabels.PARAMS["block_s"])))
-            print(json.dumps(metrics))
+            print(json.dumps({**metrics, "validation_frame_stride": stride}))
             return
         detections = detect_ball(iter_video(args.video, info), checkpoint=checkpoint,
                                  expected_sha256=expected, device=args.device, **cfg["inference"])
@@ -146,9 +187,16 @@ def benchmark(cfg, device, threads):
                       "torch_version": str(torch.__version__)}))
 
 
+def source_clean(root):
+    safe_root = Path(root).resolve().as_posix()
+    result = subprocess.run(["git", "-c", f"safe.directory={safe_root}", "status", "--porcelain", "--untracked-files=no"],
+                            cwd=root, capture_output=True, text=True, check=True)
+    return not result.stdout.strip()
+
+
 if __name__ == "__main__":
     try:
-        main()
+        sys.exit(main() or 0)
     except Exception as error:
         # Avoid tracebacks that could expose rows/coordinates from local files.
         print(json.dumps({"status": "failed", "error_type": type(error).__name__,

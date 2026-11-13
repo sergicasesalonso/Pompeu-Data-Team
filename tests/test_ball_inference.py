@@ -91,3 +91,19 @@ def test_full_frame_validation_counts_distant_false_positives():
     assert empty["full_frame_pseudo_recall_5px"] == 0
     with pytest.raises(ValueError, match="contexts"):
         evaluate_frames(detector, video[:2], table, block_frames=10)
+
+
+def test_detector_pixels_are_consumed_by_b3_homography_contract():
+    import games
+    from pompeu.vision.fuse import video_candidates_to_metres
+    set_deterministic()
+    video = np.zeros((3, 24, 32, 3), np.uint8)
+    video[:, 10, 12] = 255
+    detector = BallDetector(BrightPoint(), crop_shape=(16, 20), overlap=8)
+    pixels = detector.detect_ball(video)
+    homography = np.repeat(np.diag([32.0, 24.0, 1.0])[None], 3, axis=0)
+    metres = video_candidates_to_metres(pixels, homography)
+    length, width = games.GAMES[games.GAME]["pitch"]
+    assert len(metres) == 1 and metres.frame.iloc[0] == 1
+    np.testing.assert_allclose(metres[["x_m", "y_m"]].iloc[0], [length*12/32, width*10/24], atol=0.01)
+    assert metres.conf.iloc[0] == pixels.conf.iloc[0]

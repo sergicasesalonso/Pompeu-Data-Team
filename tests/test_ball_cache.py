@@ -81,3 +81,21 @@ def test_cache_keeps_spatial_negatives_and_refuses_old_format(tmp_path):
     (root/"ready.json").write_text(json.dumps(metadata))
     with pytest.raises(ValueError, match="cache"):
         CachedB1Dataset(root, "train")
+
+
+def test_complete_cache_reuse_requires_matching_input_provenance(tmp_path):
+    table = pd.DataFrame({"frame": [8, 11], "x_px": [10.0]*2, "y_px": [8.0]*2,
+                          "crowded": [False]*2, "split": ["train", "val"]})
+    video = np.zeros((13, 20, 24, 3), np.uint8)
+    root = tmp_path/"clips"
+    metadata = {"video_sha256": "a"*64, "b1_sha256": "b"*64,
+                "config_sha256": "c"*64, "ffmpeg_version": "synthetic decoder"}
+    kwargs = dict(stride=1, crop_shape=(16, 20), block_frames=10, metadata=metadata)
+    first = prepare_cache(table, enumerate(video), root, **kwargs)
+    def forbidden_decode():
+        raise AssertionError("complete cache must not decode the video again")
+        yield
+    assert prepare_cache(table, forbidden_decode(), root, **kwargs) == first
+    with pytest.raises(ValueError, match="provenance"):
+        prepare_cache(table, forbidden_decode(), root,
+                       **{**kwargs, "metadata": {**metadata, "b1_sha256": "d"*64}})
