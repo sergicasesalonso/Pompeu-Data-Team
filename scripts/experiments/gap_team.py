@@ -275,6 +275,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2])
     parser.add_argument("--stride", type=int, default=5, help="train on every n-th gap frame")
+    parser.add_argument("--sources", nargs="+", default=["dfl", "metrica"],
+                        help="external sources to use (Metrica 1/2 rebuild the ball from events, "
+                             "so their own ball gaps hold no possession change)")
     args = parser.parse_args()
     started = time.time()
 
@@ -283,11 +286,13 @@ def main():
     splits = {}
     for split in ("train", "val"):                                   # never "test"
         names = [external.canonical(m) for m in external.SPLITS[split]]
+        names = [m for m in names if m.split(":")[0] in args.sources]
         splits[split] = [m for m in names if present(m)]
         for m in names:
             if m not in splits[split]:
                 print("skipped {} ({}): not present locally".format(m, split))
-    print("train {}\nval   {}\nseeds {}".format(splits["train"], splits["val"], args.seeds))
+    print("sources {}\ntrain {}\nval   {}\nseeds {}".format(args.sources, splits["train"],
+                                                          splits["val"], args.seeds))
     print("collecting train")
     train = collect(splits["train"], args.seeds, run_lengths)
     print("collecting val")
