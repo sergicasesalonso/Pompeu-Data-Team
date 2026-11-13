@@ -39,7 +39,7 @@ Why this design:
 
 Tried and dropped, or no effect on its own:
 
-- A1 cleaning alone does not change the baseline. Of 2,043 ball jumps above 40 m/s, 1,911 are removed, but majority voting was already absorbing them. The value of cleaning is in the A2–A4 features and events.
+- A1 cleaning removes 1,911 of the 2,043 ball jumps above 40 m/s (`results/cleaning_report.md`). We did not measure its effect on the baseline alone on the external bench; its role is to give the A2–A4 features and events a clean input.
 - An HSMM with a single `D` state let team evidence during stoppages (for example, a goalkeeper placing the ball) override dead ball. It was replaced by team-owned dead states (§5).
 - Using `rules_v0` as an HSMM expert (`hsmm_v1_rules`) mostly copies `rules_v0`.
 - **TODO:** list the remaining dropped variants once the final method is fixed.
@@ -54,7 +54,7 @@ Cleaning is done entirely by code (`pompeu/clean/`, A1). Nothing is corrected by
   - A slot is flagged as frozen (confidence 0.3, not deleted) when it moves less than 0.2 m in 10 s while the other players move at a median speed above 1 m/s. Slots 24 and 46 turned out to be the goalkeepers, frozen by the tracker when off-screen.
   - Duplicates (same team, within 0.5 m for more than 1 s) are removed from the shorter tracklet.
   - Tracklets are stitched with the Hungarian algorithm within each connected component when they are less than 2 s and less than `9 m/s·Δt + 1 m` apart. Gaps of up to 1 s are filled linearly.
-- **Velocities** are recomputed from positions, because the ATD velocity column is empty on 89% of frames.
+- **Velocities** are recomputed from positions, because the ATD velocity column is empty on 89% of frames (`results/cleaning_report.md`).
 - **No ball:** features that need the ball are left as NaN and never imputed, and the length and age of each gap are exposed as features. Collective features (centroids, lines, compactness, pressing counts), Smart Tagging and the dead-ball structure all work without the ball. The state machine keeps the current possession through a gap. The HSMM still receives ball-free evidence there.
 - **Line B, more ball from video:**
   - B0: the ATD ball projects inside the image on 99.91% of the frames where it is observed, so the frames, tracking and homography are aligned.
