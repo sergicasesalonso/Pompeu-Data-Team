@@ -8,14 +8,17 @@ test): credit SkillCorner when it is used. Prints only counts.
 """
 
 import os
+import shutil
 import subprocess
 import sys
+import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from pompeu import external  # noqa: E402
 from pompeu.external import skillcorner  # noqa: E402
 
 URL = "https://github.com/SkillCorner/opendata.git"
+MEDIA = "https://media.githubusercontent.com/media/SkillCorner/opendata/{}/{}"
 
 
 def _tracking_files():
@@ -25,20 +28,39 @@ def _tracking_files():
     return out
 
 
+def _pointers(target):
+    """Files in the clone that are git-LFS pointers instead of data."""
+    out = []
+    for folder, dirs, names in os.walk(target):
+        dirs[:] = [d for d in dirs if d != ".git"]
+        for name in names:
+            path = os.path.join(folder, name)
+            if os.path.getsize(path) < 1024:
+                with open(path, "rb") as handle:
+                    if handle.read(40).startswith(b"version https://git-lfs"):
+                        out.append(path)
+    return out
+
+
 def main():
     target = os.path.dirname(skillcorner.ROOT)                              # .../opendata
     if not os.path.isdir(os.path.join(target, ".git")):
         os.makedirs(os.path.dirname(target), exist_ok=True)
         subprocess.run(["git", "clone", "--depth", "1", URL, target], check=True,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    # The big tracking files may be git-LFS pointers (a few hundred bytes): fetch them.
-    small = [f for f in _tracking_files() if os.path.getsize(f) < 4096]
-    if small:
-        subprocess.run(["git", "-C", target, "lfs", "pull"], check=False,
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        small = [f for f in _tracking_files() if os.path.getsize(f) < 4096]
-    print("tracking files: {}, still tiny (LFS pointers): {}".format(len(_tracking_files()),
-                                                                     len(small)))
+    # The data files may be git-LFS pointers (a few hundred bytes of text) when git-lfs is not
+    # installed: fetch the real file from GitHub's media endpoint (plain HTTPS), same repo, same data.
+    branch = subprocess.run(["git", "-C", target, "rev-parse", "--abbrev-ref", "HEAD"],
+                            capture_output=True, text=True).stdout.strip() or "master"
+    for path in _pointers(target):
+        rel = os.path.relpath(path, target).replace(os.sep, "/")
+        url = MEDIA.format(branch, rel)
+        with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "pompeu/0.1"})
+                                    ) as response, open(path + ".part", "wb") as handle:
+            shutil.copyfileobj(response, handle, length=1 << 20)
+        os.replace(path + ".part", path)
+    small = _pointers(target)
+    print("tracking files: {}, still LFS pointers: {}".format(len(_tracking_files()), len(small)))
     ids = [m for m in external.EXTRA_TRAIN if external.available(m)]
     print("skillcorner matches present: {} of {}".format(len(ids), len(external.EXTRA_TRAIN)))
     if os.environ.get("TORRE_METRICS"):
