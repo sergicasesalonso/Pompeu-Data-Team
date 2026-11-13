@@ -10,14 +10,14 @@ from torch.utils.data import DataLoader
 
 from . import decode_heatmaps
 from .checkpoint import save_checkpoint
-from .model import focal_heatmap_loss, set_deterministic
+from .model import focal_heatmap_loss
 
 
 @torch.inference_mode()
 def evaluate(model, loader, device="cpu", threshold=0.5, top_k=3):
     """Crop-level agreement with held-out pseudo-labels; not human-GT accuracy."""
     model.eval()
-    losses, examples, candidates, hits = 0.0, 0, 0, {5: 0, 10: 0}
+    losses, examples, positives, candidates, hits = 0.0, 0, 0, 0, {5: 0, 10: 0}
     for batch in loader:
         logits = model(batch["clip"].to(device))
         loss = focal_heatmap_loss(logits, batch["target"].to(device), batch["weight"].to(device))
@@ -26,6 +26,7 @@ def evaluate(model, loader, device="cpu", threshold=0.5, top_k=3):
         size = len(logits)
         losses += float(loss) * size
         examples += size
+        positives += int(torch.isfinite(batch["point"]).all(dim=1).sum())
         table = decode_heatmaps(logits.sigmoid()[:, 0].cpu().numpy(), np.arange(size), top_k, threshold)
         candidates += len(table)
         for index in range(size):
@@ -35,10 +36,11 @@ def evaluate(model, loader, device="cpu", threshold=0.5, top_k=3):
                 hits[radius] += int((distance <= radius).any())
     if not examples:
         raise ValueError("empty validation set")
-    metrics = {"val_loss": losses/examples, "val_examples": examples, "val_candidates": candidates}
+    metrics = {"val_loss": losses/examples, "val_crops": examples, "val_positive_crops": positives,
+               "val_negative_crops": examples-positives, "val_candidates": candidates}
     for radius, count in hits.items():
-        metrics[f"precision_{radius}px"] = count/candidates if candidates else 0.0
-        metrics[f"recall_{radius}px"] = count/examples
+        metrics[f"crop_pseudo_precision_{radius}px"] = count/candidates if candidates else 0.0
+        metrics[f"crop_pseudo_recall_{radius}px"] = count/positives if positives else 0.0
     return metrics
 
 
@@ -59,7 +61,6 @@ def fit(model, train, val, checkpoint, *, seed=0, epochs=10, batch_size=8, lr=1e
         raise ValueError("model and dataset context/crop mismatch")
     if epochs < 1 or batch_size < 1 or not np.isfinite(lr) or lr <= 0:
         raise ValueError("invalid training settings")
-    set_deterministic(seed)
     model.to(device)
     generator = torch.Generator().manual_seed(seed)
     train_loader = DataLoader(train, batch_size=batch_size, shuffle=True, num_workers=0, generator=generator)

@@ -61,3 +61,23 @@ def test_video_frame_index_and_decode_errors():
     with patch("shutil.which", return_value=None):
         with pytest.raises(RuntimeError, match="FFmpeg"):
             list(iter_video("synthetic.mp4", info))
+
+
+def test_cache_keeps_spatial_negatives_and_refuses_old_format(tmp_path):
+    import json
+    set_deterministic()
+    table = pd.DataFrame({"frame": [8, 11], "x_px": [30.0]*2, "y_px": [30.0]*2,
+                          "crowded": [False]*2, "split": ["train", "val"]})
+    video = np.zeros((13, 80, 96, 3), np.uint8)
+    video[:, 30, 30] = 255
+    root = tmp_path/"clips"
+    counts = prepare_cache(table, enumerate(video), root, stride=1, crop_shape=(16, 20),
+                           block_frames=10, negative_crops=1, negative_margin=8)
+    assert counts == {"train": 2, "val": 2}
+    val = CachedB1Dataset(root, "val")
+    assert len(val) == 2 and val[1]["known_negative"] and val[1]["target"].sum() == 0
+    metadata = json.loads((root/"ready.json").read_text())
+    metadata["version"] = 1
+    (root/"ready.json").write_text(json.dumps(metadata))
+    with pytest.raises(ValueError, match="cache"):
+        CachedB1Dataset(root, "train")

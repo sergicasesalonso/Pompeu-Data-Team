@@ -16,7 +16,7 @@ from torch.nn import functional as F
 
 def set_deterministic(seed=0, threads=1):
     """Repeatability within one pinned software/hardware environment, not CPU=GPU."""
-    if not isinstance(seed, int) or not 0 <= seed < 2**32 or threads < 1:
+    if not isinstance(seed, int) or not 0 <= seed < 2**32 or not isinstance(threads, int) or threads < 1:
         raise ValueError("invalid seed or thread count")
     os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
     random.seed(seed)
@@ -30,7 +30,12 @@ def set_deterministic(seed=0, threads=1):
     torch.backends.cudnn.allow_tf32 = False
 
 
-def _block(inputs, outputs):
+def _block(inputs, outputs, separable=False):
+    if separable:
+        return nn.Sequential(nn.Conv2d(inputs, inputs, 3, padding=1, groups=inputs),
+                             nn.Conv2d(inputs, outputs, 1), nn.ReLU(),
+                             nn.Conv2d(outputs, outputs, 3, padding=1, groups=outputs),
+                             nn.Conv2d(outputs, outputs, 1), nn.ReLU())
     return nn.Sequential(nn.Conv2d(inputs, outputs, 3, padding=1), nn.ReLU(),
                          nn.Conv2d(outputs, outputs, 3, padding=1), nn.ReLU())
 
@@ -38,16 +43,18 @@ def _block(inputs, outputs):
 class TemporalHeatmapNet(nn.Module):
     """Two downsampling stages with skip connections; no batch-state statistics."""
 
-    def __init__(self, n_frames=3, width=16):
+    def __init__(self, n_frames=3, width=16, separable=False):
         super().__init__()
         if n_frames not in (3, 5) or not isinstance(width, int) or width < 2:
             raise ValueError("expected 3 or 5 frames and width >= 2")
-        self.config = {"n_frames": n_frames, "width": width}
-        self.enc1 = _block(n_frames * 3, width)
-        self.enc2 = _block(width, width * 2)
-        self.bridge = _block(width * 2, width * 4)
-        self.dec2 = _block(width * 6, width * 2)
-        self.dec1 = _block(width * 3, width)
+        if not isinstance(separable, bool):
+            raise ValueError("separable must be boolean")
+        self.config = {"n_frames": n_frames, "width": width, "separable": separable}
+        self.enc1 = _block(n_frames * 3, width, separable)
+        self.enc2 = _block(width, width * 2, separable)
+        self.bridge = _block(width * 2, width * 4, separable)
+        self.dec2 = _block(width * 6, width * 2, separable)
+        self.dec1 = _block(width * 3, width, separable)
         self.head = nn.Conv2d(width, 1, 1)
         nn.init.constant_(self.head.bias, -4.6)  # sparse positives at initialisation
 

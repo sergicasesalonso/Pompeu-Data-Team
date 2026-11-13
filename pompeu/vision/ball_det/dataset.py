@@ -29,12 +29,12 @@ class B1ClipDataset(Dataset):
 
     B1 owns the split. `block_frames` must match B1's block length: this only
     discards contexts crossing a block boundary; it never creates new splits.
-    Labels without an observed ball are not negative examples. Every crop here
-    contains the observed ball. Validation measures agreement with B1, not GT.
+    Negatives are spatial crops away from an observed B1 ball. Missing-ball
+    frames never become negatives. Validation measures agreement with B1, not GT.
     """
 
     def __init__(self, table, read_clip, split, *, crop_shape=(256, 448), n_frames=3,
-                 block_frames=1500, seed=0, augment=False):
+                 block_frames=1500, seed=0, augment=False, negative_crops=0, negative_margin=16):
         required = {"frame", "x_px", "y_px", "crowded", "split"}
         if not required.issubset(table.columns) or split not in ("train", "val"):
             raise ValueError("expected B1 columns and a train/val split")
@@ -51,6 +51,9 @@ class B1ClipDataset(Dataset):
             raise ValueError("validation augmentation is forbidden")
         if not isinstance(seed, int) or not 0 <= seed < 2**32:
             raise ValueError("invalid seed")
+        if (not isinstance(negative_crops, int) or negative_crops < 0
+                or not np.isfinite(negative_margin) or negative_margin < 0):
+            raise ValueError("invalid negative crop settings")
         if table.groupby(table.frame // block_frames)["split"].nunique().gt(1).any():
             raise ValueError("B1 block length does not match the supplied split")
         radius = n_frames // 2
@@ -60,9 +63,10 @@ class B1ClipDataset(Dataset):
         self.read_clip, self.split, self.crop_shape = read_clip, split, tuple(crop_shape)
         self.n_frames, self.seed, self.augment, self.epoch = n_frames, seed, augment, 0
         self.block_frames = block_frames
+        self.negative_crops, self.negative_margin = negative_crops, negative_margin
 
     def __len__(self):
-        return len(self.table)
+        return len(self.table)*(1+self.negative_crops)
 
     def set_epoch(self, epoch):
         if not isinstance(epoch, int) or epoch < 0 or (self.split == "val" and epoch != 0):
@@ -70,7 +74,8 @@ class B1ClipDataset(Dataset):
         self.epoch = epoch
 
     def __getitem__(self, index):
-        row = self.table.iloc[index]
+        row_index, variant = divmod(index, 1+self.negative_crops)
+        row = self.table.iloc[row_index]
         frame = int(row.frame)
         clip = np.asarray(self.read_clip(frame, self.n_frames))
         if (clip.ndim != 4 or clip.shape[0] != self.n_frames or clip.shape[-1] != 3
@@ -80,7 +85,7 @@ class B1ClipDataset(Dataset):
         x, y = float(row.x_px), float(row.y_px)
         if not (0 <= x < w and 0 <= y < h):
             raise ValueError("B1 coordinate is outside the decoded image")
-        rng = np.random.default_rng(np.random.SeedSequence([self.seed, self.epoch, frame]))
+        rng = np.random.default_rng(np.random.SeedSequence([self.seed, self.epoch, frame, variant]))
         ch, cw = self.crop_shape
 
         def origin(coordinate, length, crop):
@@ -89,13 +94,29 @@ class B1ClipDataset(Dataset):
             return int(rng.integers(low, high+1))
 
         left, top = origin(x, w, cw), origin(y, h, ch)
+        negative = False
+        if variant:
+            mx, my, margin = max(0, w-cw), max(0, h-ch), self.negative_margin
+            regions = [(0, min(mx, int(np.floor(x-cw-margin))), 0, my),
+                       (max(0, int(np.floor(x+margin))+1), mx, 0, my),
+                       (0, mx, 0, min(my, int(np.floor(y-ch-margin)))),
+                       (0, mx, max(0, int(np.floor(y+margin))+1), my)]
+            regions = [r for r in regions if r[0] <= r[1] and r[2] <= r[3]]
+            if regions:
+                a, b, c, d = regions[int(rng.integers(len(regions)))]
+                left, top = int(rng.integers(a, b+1)), int(rng.integers(c, d+1))
+                negative = True
+            # If no safe region exists, retain a correctly labelled positive.
         pixels = np.zeros((self.n_frames, ch, cw, 3), dtype=np.uint8)
         cut = clip[:, top:top+ch, left:left+cw]
         pixels[:, :cut.shape[1], :cut.shape[2]] = cut
         tensor = torch.from_numpy(pixels.transpose(0, 3, 1, 2).copy()).float() / 255
         point = [float(np.clip(x-left, 0, cw-1)), float(np.clip(y-top, 0, ch-1))]
+        if negative:
+            point = [float("nan"), float("nan")]
         if self.augment:
             tensor, point = augment_clip(tensor, point, rng)
         return {"clip": tensor.contiguous(), "target": heatmap_targets([point], ch, cw)[0],
-                "point": torch.tensor(point), "weight": 0.5 if row.crowded else 1.0,
+                "point": torch.tensor(point), "weight": 0.5 if row.crowded and not negative else 1.0,
+                "known_negative": negative,
                 "frame": frame}

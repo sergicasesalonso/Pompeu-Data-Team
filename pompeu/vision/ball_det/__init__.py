@@ -5,20 +5,26 @@ import pandas as pd
 
 
 def detect_ball(frames, *, checkpoint=None, expected_sha256=None, **options):
-    """Load a private trained checkpoint and detect on CPU unless explicitly overridden.
+    """Load a hash-pinned private checkpoint for canonical CPU inference.
 
     PyTorch remains an optional dependency: importing heatmap utilities does not
     import it. Input is a video array or (absolute_frame, RGB_uint8) pairs.
     """
     from pathlib import Path
-    import hashlib
+    import yaml
     from pompeu import paths
     from .checkpoint import load_model
     from .predict import BallDetector
-    if checkpoint is None:
-        config = Path(paths.ROOT) / "configs" / "b2_temporal.yaml"
-        config_id = hashlib.sha256(config.read_bytes()).hexdigest()[:16]
-        checkpoint = Path(paths.CACHE_DIR) / "ball_det" / config_id / "best.pt"
+    from .provenance import checkpoint_pin, configuration_hash
+    if str(options.get("device", "cpu")) != "cpu":
+        raise ValueError("canonical B2 inference requires CPU")
+    if checkpoint is None or expected_sha256 is None:
+        config_path = Path(paths.ROOT) / "configs" / "b2_temporal.yaml"
+        config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        if checkpoint is None:
+            checkpoint = Path(paths.CACHE_DIR) / "ball_det" / configuration_hash(config)[:16] / "best.pt"
+        if expected_sha256 is None:
+            expected_sha256 = checkpoint_pin(config)
     path = checkpoint
     model, metadata = load_model(path, expected_sha256)
     if "crop_shape" in metadata:

@@ -7,6 +7,16 @@ import subprocess
 import numpy as np
 
 
+def decoder_version():
+    """Return decoder provenance without reading any video."""
+    executable = shutil.which("ffmpeg")
+    if executable is None:
+        raise RuntimeError("FFmpeg is required for local B2 video processing")
+    result = subprocess.run([executable, "-version"], check=True, capture_output=True, text=True,
+                            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+    return result.stdout.splitlines()[0]
+
+
 def iter_video(path, info):
     """Yield (zero-based frame, RGB uint8), given metadata from Marti's B0 probe.
 
@@ -21,6 +31,7 @@ def iter_video(path, info):
         raise ValueError("invalid B0 video dimensions")
     command = [executable, "-nostdin", "-v", "error", "-threads", "1", "-i", str(path),
                "-map", "0:v:0", "-an", "-sn", "-dn", "-vsync", "0", "-threads", "1",
+               "-sws_flags", "accurate_rnd+bitexact+full_chroma_int", "-bitexact",
                "-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1"]
     process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                stderr=subprocess.DEVNULL,

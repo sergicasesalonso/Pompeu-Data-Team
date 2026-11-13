@@ -34,6 +34,7 @@ def load_model(path, expected_sha256=None):
     payload = torch.load(io.BytesIO(content), map_location="cpu", weights_only=True)
     if payload.get("version") != 1:
         raise ValueError("unsupported B2 checkpoint format")
-    model = TemporalHeatmapNet(**payload["model_config"])
+    with torch.random.fork_rng(devices=[]):
+        model = TemporalHeatmapNet(**payload["model_config"])
     model.load_state_dict(payload["state_dict"], strict=True)
     return model.eval(), payload["metadata"]

@@ -53,3 +53,13 @@ def test_training_repeats_exactly_and_updates_weights():
     loss_b, output_b = run()
     assert loss_a == loss_b
     assert torch.equal(output_a, output_b)
+
+
+def test_separable_variant_supports_backward_at_native_resolution():
+    set_deterministic()
+    model = TemporalHeatmapNet(width=16, separable=True)
+    assert sum(p.numel() for p in model.parameters()) < 20_000
+    target = heatmap_targets([[12, 10]], 24, 32)
+    loss = focal_heatmap_loss(model(torch.zeros(1, 3, 3, 24, 32)), target)
+    loss.backward()
+    assert torch.isfinite(loss)

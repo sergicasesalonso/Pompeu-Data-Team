@@ -49,7 +49,7 @@ def test_train_save_reload_and_identical_checkpoint_bytes(tmp_path):
                       seed=3, epochs=2, batch_size=1)
         restored, info = load_model(path)
         assert info["seed"] == 3
-        assert history[-1]["val_examples"] == 2
+        assert history[-1]["val_crops"] == 2
         sample = dataset("val")[0]["clip"][None]
         return history, path.read_bytes(), restored(sample).detach()
     a, bytes_a, out_a = run(tmp_path/"a.pt")
@@ -57,3 +57,20 @@ def test_train_save_reload_and_identical_checkpoint_bytes(tmp_path):
     assert a == b and bytes_a == bytes_b and torch.equal(out_a, out_b)
     with pytest.raises(ValueError, match="sha256"):
         load_model(tmp_path/"a.pt", "0"*64)
+
+
+def test_negative_crops_are_away_from_an_observed_ball():
+    table = pd.DataFrame({"frame": [8], "x_px": [30.0], "y_px": [30.0],
+                          "crowded": [False], "split": ["train"]})
+    def reader(frame, count):
+        clip = np.zeros((count, 80, 96, 3), np.uint8)
+        clip[:, 30, 30] = 255
+        return clip
+    data = B1ClipDataset(table, reader, "train", crop_shape=(16, 20), block_frames=10,
+                         negative_crops=1, negative_margin=8)
+    assert len(data) == 2
+    positive, negative = data[0], data[1]
+    assert positive["target"].max() == 1 and not positive["known_negative"]
+    assert negative["known_negative"] and torch.isnan(negative["point"]).all()
+    assert negative["target"].sum() == 0 and negative["clip"].sum() == 0
+    assert torch.equal(negative["clip"], data[1]["clip"])

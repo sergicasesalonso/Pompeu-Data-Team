@@ -6,7 +6,6 @@ import numpy as np
 import torch
 
 from . import decode_heatmaps
-from .model import set_deterministic
 
 
 class BallDetector:
@@ -18,20 +17,21 @@ class BallDetector:
     """
 
     def __init__(self, model, *, crop_shape=(256, 448), batch_size=8, overlap=32,
-                 top_k=3, threshold=0.5, radius=4, device="cpu"):
+                 top_k=3, threshold=0.5, radius=4, device="cpu", frame_stride=1):
         if (len(crop_shape) != 2 or any(not isinstance(v, int) or v < 4 for v in crop_shape)
                 or not isinstance(overlap, int) or not 0 <= overlap < min(crop_shape)
-                or not isinstance(batch_size, int) or batch_size < 1):
+                or not isinstance(batch_size, int) or batch_size < 1
+                or not isinstance(frame_stride, int) or frame_stride < 1):
             raise ValueError("invalid crop, overlap or batch size")
         # Reuse the decoder's validation even for an empty input stream.
         decode_heatmaps(np.empty((0, 1, 1)), np.array([], dtype=np.int64), top_k, threshold, radius)
-        set_deterministic()
         self.model, self.device = model.to(device).eval(), device
         self.n_frames = int(model.config["n_frames"])
         if self.n_frames not in (3, 5):
             raise ValueError("expected a 3- or 5-frame model")
         self.crop_shape, self.batch_size, self.overlap = tuple(crop_shape), batch_size, overlap
         self.top_k, self.threshold, self.radius = top_k, threshold, radius
+        self.frame_stride = frame_stride
 
     def _positions(self, length, crop):
         last = max(0, length-crop)
@@ -65,11 +65,12 @@ class BallDetector:
                 chosen.append((x, y, conf))
                 if len(chosen) == self.top_k:
                     break
-        return [(frame, round(x, 2), round(y, 2), conf) for x, y, conf in chosen]
+        return [(frame, round(x, 1), round(y, 1), conf) for x, y, conf in chosen]
 
-    def detect_ball(self, frames):
+    def iter_detections(self, frames, *, frame_ids=None):
+        """Yield each processed centre, including empty results, for validation."""
         source = enumerate(frames) if isinstance(frames, np.ndarray) else frames
-        buffer, rows = deque(maxlen=self.n_frames), []
+        buffer = deque(maxlen=self.n_frames)
         previous, shape = None, None
         for frame, image in source:
             if not isinstance(frame, (int, np.integer)) or frame < 0 or (previous is not None and frame <= previous):
@@ -85,8 +86,14 @@ class BallDetector:
             buffer.append((int(frame), image.copy()))
             previous, shape = frame, image.shape
             if len(buffer) == self.n_frames:
+                centre = buffer[self.n_frames//2][0]
+                if centre % self.frame_stride or (frame_ids is not None and centre not in frame_ids):
+                    continue
                 clip = np.stack([item[1] for item in buffer])
-                rows.extend(self._predict_frame(clip, buffer[self.n_frames//2][0]))
+                yield centre, self._predict_frame(clip, centre)
+
+    def detect_ball(self, frames, *, frame_ids=None):
+        rows = [row for _, found in self.iter_detections(frames, frame_ids=frame_ids) for row in found]
         import pandas as pd
         return pd.DataFrame(rows, columns=["frame", "x_px", "y_px", "conf"]).astype(
             {"frame": "int64", "x_px": "float64", "y_px": "float64", "conf": "float64"})

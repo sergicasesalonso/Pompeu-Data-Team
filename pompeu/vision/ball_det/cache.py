@@ -53,16 +53,17 @@ def prepare_cache(table, frames, directory, *, stride=5, metadata=None, **settin
         dataset, index = lookup[centre]
         clip = np.stack([item[1] for item in buffer])
         dataset.read_clip = lambda frame, count: clip
-        sample = dataset[index]
-        np.savez_compressed(directory/f"{centre:010d}.npz",
-                            clip=np.rint(sample["clip"].numpy()*255).astype(np.uint8),
-                            point=sample["point"].numpy())
+        for variant in range(1+dataset.negative_crops):
+            sample = dataset[index*(1+dataset.negative_crops)+variant]
+            np.savez_compressed(directory/f"{centre:010d}_{variant:02d}.npz",
+                                clip=np.rint(sample["clip"].numpy()*255).astype(np.uint8),
+                                point=sample["point"].numpy())
         seen.add(centre)
     if seen != set(lookup):
         raise ValueError("not all eligible B1 contexts were decoded; cache is incomplete")
     manifest = pd.concat([dataset.table for dataset in datasets], ignore_index=True).sort_values("frame")
     manifest.to_parquet(directory/"manifest.parquet", index=False)
-    info = {"version": 1, "settings": settings, "stride": stride, "metadata": metadata or {},
+    info = {"version": 2, "settings": settings, "stride": stride, "metadata": metadata or {},
             "counts": {dataset.split: len(dataset) for dataset in datasets}}
     (directory/"ready.json").write_text(json.dumps(info, sort_keys=True), encoding="utf-8")
     return info["counts"]
@@ -74,22 +75,25 @@ class CachedB1Dataset(B1ClipDataset):
     def __init__(self, directory, split, *, augment=False):
         self.directory = Path(directory)
         info = json.loads((self.directory/"ready.json").read_text(encoding="utf-8"))
-        if info.get("version") != 1:
+        if info.get("version") != 2:
             raise ValueError("unsupported B2 crop cache")
         table = pd.read_parquet(self.directory/"manifest.parquet")
         super().__init__(table, None, split, augment=augment, **info["settings"])
         self.metadata = info["metadata"]
 
     def __getitem__(self, index):
-        row = self.table.iloc[index]
+        row_index, variant = divmod(index, 1+self.negative_crops)
+        row = self.table.iloc[row_index]
         frame = int(row.frame)
-        with np.load(self.directory/f"{frame:010d}.npz", allow_pickle=False) as stored:
+        with np.load(self.directory/f"{frame:010d}_{variant:02d}.npz", allow_pickle=False) as stored:
             pixels, point = stored["clip"], stored["point"].tolist()
         if pixels.shape != (self.n_frames, 3, *self.crop_shape) or pixels.dtype != np.uint8:
             raise ValueError("invalid cached clip")
         tensor = torch.from_numpy(pixels.copy()).float()/255
         if self.augment:
-            rng = np.random.default_rng(np.random.SeedSequence([self.seed, self.epoch, frame]))
+            rng = np.random.default_rng(np.random.SeedSequence([self.seed, self.epoch, frame, variant]))
             tensor, point = augment_clip(tensor, point, rng)
+        negative = bool(np.isnan(point).all())
         return {"clip": tensor, "target": heatmap_targets([point], *self.crop_shape)[0],
-                "point": torch.tensor(point), "weight": 0.5 if row.crowded else 1.0, "frame": frame}
+                "point": torch.tensor(point), "known_negative": negative,
+                "weight": 0.5 if row.crowded and not negative else 1.0, "frame": frame}

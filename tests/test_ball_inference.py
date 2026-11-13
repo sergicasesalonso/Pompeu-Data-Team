@@ -48,5 +48,46 @@ def test_validation_pixel_tolerances_are_distinct():
     batch = {"clip": clips, "target": heatmap_targets([[5, 8]], 24, 24),
              "point": torch.tensor([[5, 8]]), "weight": torch.ones(1)}
     metrics = evaluate(BrightPoint(), [batch])
-    assert metrics["precision_5px"] == metrics["recall_5px"] == 0
-    assert metrics["precision_10px"] == metrics["recall_10px"] == 1
+    assert metrics["crop_pseudo_precision_5px"] == metrics["crop_pseudo_recall_5px"] == 0
+    assert metrics["crop_pseudo_precision_10px"] == metrics["crop_pseudo_recall_10px"] == 1
+
+
+def test_constructor_does_not_change_threads_or_random_state():
+    old_threads = torch.get_num_threads()
+    try:
+        torch.set_num_threads(2)
+        state = torch.get_rng_state()
+        deterministic = torch.are_deterministic_algorithms_enabled()
+        BallDetector(BrightPoint())
+        assert torch.get_num_threads() == 2
+        assert torch.equal(state, torch.get_rng_state())
+        assert deterministic == torch.are_deterministic_algorithms_enabled()
+    finally:
+        torch.set_num_threads(old_threads)
+
+
+def test_canonical_api_requires_hash_and_rejects_cuda(tmp_path):
+    path = tmp_path/"absent.pt"
+    with pytest.raises(ValueError, match="CPU"):
+        detect_ball([], checkpoint=path, expected_sha256="0"*64, device="cuda")
+    with pytest.raises(ValueError, match="pin"):
+        detect_ball([], checkpoint=path)
+
+
+def test_full_frame_validation_counts_distant_false_positives():
+    import pandas as pd
+    from pompeu.vision.ball_det.validation import evaluate_frames
+    set_deterministic()
+    video = np.zeros((3, 24, 32, 3), np.uint8)
+    video[:, 8, 5] = video[:, 8, 24] = 255
+    table = pd.DataFrame({"frame": [1], "x_px": [5.0], "y_px": [8.0],
+                          "crowded": [False], "split": ["val"]})
+    detector = BallDetector(BrightPoint(), crop_shape=(16, 20), overlap=8)
+    report = evaluate_frames(detector, video, table, block_frames=10)
+    assert report["full_frame_val_frames"] == 1 and report["full_frame_candidates"] == 2
+    assert report["full_frame_pseudo_precision_5px"] == 0.5
+    assert report["full_frame_pseudo_recall_5px"] == 1
+    empty = evaluate_frames(detector, video*0, table, block_frames=10)
+    assert empty["full_frame_pseudo_recall_5px"] == 0
+    with pytest.raises(ValueError, match="contexts"):
+        evaluate_frames(detector, video[:2], table, block_frames=10)
