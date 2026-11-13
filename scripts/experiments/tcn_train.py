@@ -34,6 +34,11 @@ def items_for(names, tag):
     return paths
 
 
+def drop_tags(item):
+    keep = [i for i, n in enumerate(item["names"]) if not n.startswith("tag:")]
+    return dict(item, X=item["X"][:, keep], names=[item["names"][i] for i in keep])
+
+
 def state_hash(model):
     import torch
     buffer = io.BytesIO()
@@ -46,6 +51,8 @@ def main():
     parser.add_argument("--out", required=True)
     parser.add_argument("--tag", default="v1")
     parser.add_argument("--extra", action="store_true")
+    parser.add_argument("--no-tags", action="store_true",
+                        help="ablation: drop the synthetic Smart Tagging channels")
     parser.add_argument("--extra-seeds", type=int, nargs="+", default=None,
                         help="only these degradation seeds of the extra_train items")
     parser.add_argument("--steps", type=int, default=4000)
@@ -75,15 +82,16 @@ def main():
     val_paths = items_for(val_names, args.tag)
     # Normalisation from the train split's own items (the extra matches only add examples);
     # inputs kept as float16 in memory, cast per batch.
-    train = [tcn.load_item(p) for p in train_paths[:len(items_for(list(external.SPLITS["train"]),
+    load = (lambda p: drop_tags(tcn.load_item(p))) if args.no_tags else tcn.load_item
+    train = [load(p) for p in train_paths[:len(items_for(list(external.SPLITS["train"]),
                                                                  args.tag))]]
     norm = tcn.fit_normalisation(train)
     Z, Y = [], []
     for p in train_paths:
-        it = tcn.load_item(p)
+        it = load(p)
         Z.append(tcn.normalise(it["X"], it["names"], norm).astype(np.float16))
         Y.append(it["y"].astype(np.int64))
-    val = [tcn.load_item(p) for p in val_paths]
+    val = [load(p) for p in val_paths]
     Zv = [tcn.normalise(it["X"], it["names"], norm) for it in val]
     Yv = [it["y"].astype(np.int64) for it in val]
     del train, val                                   # raw inputs no longer needed
