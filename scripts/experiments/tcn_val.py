@@ -7,8 +7,8 @@ robust_val.py (seed 1000*seed + index, degrade defaults, the ATD's no-ball run l
 candidate sees the SAME degraded match:
 
   rules_v0            pipeline.predict (configs/rules_v0.yaml)
-  hsmm_v1_fit_mbr     cleaned (A1 defaults), hsmm.prepare, decode_prepared, A10 policy -- the
-                      config exactly (robust_val's shared-prepare shortcut, plus the policy)
+  hsmm_v1_fit_mbr     cleaned (A1 defaults), hsmm.prepare, decode_prepared -- exactly
+  hsmm_v1_fit_avg     robust_val's shared-prepare path (no A10 policy unless --policy)
   tcn s=<k>           the TCN alone: argmax of its per-frame posterior after a k-frame moving
                       average, A10 policy
   hsmm+tcn wt/wd      hsmm_v1_fit_mbr with the TCN as one more expert (product of experts): its
@@ -46,7 +46,8 @@ VALUES = (2.0, 5.0, 8.0)
 _STATE = {}
 
 
-def _init(model_path, threads):
+def _init(model_path, threads, policy):
+    _STATE["policy"] = policy
     import torch
     torch.set_num_threads(threads)
     # deadball_gbm.VERSION = 2 but only artifacts/deadball_gbm_v1.txt is committed (known, Sergi
@@ -63,6 +64,7 @@ def _init(model_path, threads):
     _STATE["rules"] = harness.load_config(os.path.join(paths.CONFIGS_DIR, "rules_v0.yaml"))
     _STATE["hsmm"] = harness.load_config(os.path.join(paths.CONFIGS_DIR,
                                                       "hsmm_v1_fit_mbr.yaml"))
+    _STATE["avg"] = harness.load_config(os.path.join(paths.CONFIGS_DIR, "hsmm_v1_fit_avg.yaml"))
 
 
 def _job(job):
@@ -87,12 +89,17 @@ def _job(job):
     clean, _ = clean_tracking(degraded, hcfg.get("clean") or {})
     prep = hsmm.prepare(clean, params.get("deadball") or None, params.get("touches") or None)
 
+    # robust_val.py protocol (default): the HSMM labels as decode_prepared gives them, no A10
+    # policy. --policy applies the policy to every HSMM candidate instead.
     def run(p):
         out = hsmm.decode_prepared(prep, dict(p))["labels"]
-        return pm.label_codes(finalize(out, clean, hcfg.get("policy") or {}))
+        if _STATE["policy"]:
+            out = finalize(out, clean, hcfg.get("policy") or {})
+        return pm.label_codes(out)
 
+    avg = dict(_STATE["avg"]["pipeline"]["params"].get("hsmm") or {})
     preds["hsmm_v1_fit_mbr"] = run(base)
-    preds["hsmm_v1_fit (viterbi)"] = run(dict(base, mbr=False))
+    preds["hsmm_v1_fit_avg"] = run(avg)
 
     tags = st.generate(external.align_labels(graded, 2.0, fps), half, st.load_error_model(),
                        seed=tcn.TAG_SEED + dseed, fps=fps)
@@ -109,6 +116,8 @@ def _job(job):
     for wt, wd in mbr_grid:
         preds["hsmm+tcn {:g}/{:g} mbr".format(wt, wd)] = run(
             dict(base, w_learned_team=wt, w_learned_dead=wd))
+        preds["avg+tcn {:g}/{:g} vit".format(wt, wd)] = run(
+            dict(avg, w_learned_team=wt, w_learned_dead=wd))
     return index, seed, preds, time.time() - started
 
 
@@ -125,6 +134,8 @@ def main():
     parser.add_argument("--mbr", nargs="*", default=[],
                         help="wt/wd pairs decoded with MBR, e.g. 2/1 4/0")
     parser.add_argument("--json", default=None)
+    parser.add_argument("--policy", action="store_true",
+                        help="apply the A10 policy to the HSMM candidates (robust_val does not)")
     args = parser.parse_args()
     from gap_team_weight import present, score
     from robust_val import fmt
@@ -148,7 +159,7 @@ def main():
             for s in args.seeds]
     preds = {}
     with get_context("spawn").Pool(args.workers, initializer=_init,
-                                   initargs=(args.model, args.threads)) as pool:
+                                   initargs=(args.model, args.threads, args.policy)) as pool:
         for index, seed, out, secs in pool.imap_unordered(_job, jobs):
             for c, codes in out.items():
                 preds.setdefault(c, {}).setdefault(seed, {})[index] = codes
@@ -160,7 +171,7 @@ def main():
     for v in VALUES:
         for c in preds:
             results.setdefault(c, {})[v] = score(truths[v], preds[c], args.draws)
-    order = ["rules_v0", "hsmm_v1_fit_mbr", "hsmm_v1_fit (viterbi)"]
+    order = ["rules_v0", "hsmm_v1_fit_mbr", "hsmm_v1_fit_avg"]
     order += sorted(c for c in preds if c not in order)
     for v in VALUES:
         print("\nmin_possession_s {:g}, all val:  spellF1 [5%, 95%]   macroF1 [5%, 95%]   "
