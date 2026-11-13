@@ -1,0 +1,20 @@
+# Refitted by scripts/experiments/fit_hsmm_wide.py from hsmm_v2_fit with wider grids
+# for w_dead, poss_median_s, p_poss_to_dead, on the val external matches (dfl:J03WN1, metrica:2),
+# seeds [0, 1]. val spellF1 0.5695 (hsmm_v2_fit 0.5598), macroF1 0.8043. Test never used.
+name: hsmm_v2_fit2
+tracking: atd
+pipeline:
+  method: hsmm_v1
+  params:
+    hsmm:
+      gap_team_weight: 0.25
+      gap_team_model: configs/gap_team_v1.json
+      w_proximity: 0.0
+      w_events: 0.5
+      a3_segment_llr: 0.0
+      w_dead: 2.0
+      rules_llr: 0.5
+      poss_median_s: 25.0
+      p_poss_to_dead: 0.6
+    deadball: {}
+  clean: {}
