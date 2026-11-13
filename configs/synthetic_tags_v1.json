@@ -1,0 +1,475 @@
+{
+ "measured": {
+  "source": "BAR-ATH Smart Tagging vs rules_v0 & hsmm_v1(w_tagging 0) consensus, ATD ball visible, public window +-60 s excluded",
+  "fps": 25,
+  "frames": {
+   "usable": 149857,
+   "usable_hsmm_live": 78883,
+   "confident_live": 63907,
+   "confident_dead": 70745
+  },
+  "coverage": {
+   "confident_live_under_voting_tag": 0.7379,
+   "hsmm_live_under_voting_tag": 0.7216,
+   "confident_live_under_any_tag": 0.9168,
+   "confident_dead_under_voting_tag": 0.2475,
+   "usable_under_voting_tag": 0.4969
+  },
+  "agreement_frames": {
+   "sign_agrees": 0.8146,
+   "sign_disagrees": 0.1558,
+   "tied_zero": 0.0296,
+   "mean_votes_when_covered": 2.321,
+   "two_or_more_votes": 0.8628
+  },
+  "per_code": {
+   "ATTACKING TRANSITION": {
+    "n": 23,
+    "duration_s": {
+     "n": 23,
+     "median": 15.56,
+     "q25": 12.46,
+     "q75": 19.02,
+     "mean": 15.677,
+     "std": 3.76
+    },
+    "team_na": 0.0,
+    "frame_agreement": 0.7008,
+    "tags_majority_wrong": 0.1304,
+    "mean_live_share": 0.987
+   },
+   "BALL IN FINAL THIRD": {
+    "n": 85,
+    "duration_s": {
+     "n": 85,
+     "median": 26.72,
+     "q25": 24.04,
+     "q75": 34.44,
+     "mean": 29.751,
+     "std": 8.316
+    },
+    "team_na": 0.0
+   },
+   "BALL IN THE BOX": {
+    "n": 67,
+    "duration_s": {
+     "n": 67,
+     "median": 17.48,
+     "q25": 15.96,
+     "q75": 18.7,
+     "mean": 18.076,
+     "std": 3.057
+    },
+    "team_na": 0.0
+   },
+   "BUILD UP": {
+    "n": 21,
+    "duration_s": {
+     "n": 21,
+     "median": 20.4,
+     "q25": 17.48,
+     "q75": 22.72,
+     "mean": 19.613,
+     "std": 4.082
+    },
+    "team_na": 0.0,
+    "frame_agreement": 0.9252,
+    "tags_majority_wrong": 0.0,
+    "mean_live_share": 0.8638
+   },
+   "CREATING CHANCES": {
+    "n": 29,
+    "duration_s": {
+     "n": 29,
+     "median": 30.0,
+     "q25": 30.0,
+     "q75": 30.0,
+     "mean": 30.0,
+     "std": 0.0
+    },
+    "team_na": 0.069,
+    "frame_agreement": 0.7487,
+    "tags_majority_wrong": 0.2083,
+    "mean_live_share": 0.4549
+   },
+   "DEFENDING IN ATTACKING THIRD": {
+    "n": 21,
+    "duration_s": {
+     "n": 21,
+     "median": 20.4,
+     "q25": 17.48,
+     "q75": 22.72,
+     "mean": 19.613,
+     "std": 4.082
+    },
+    "team_na": 0.0,
+    "frame_agreement": 0.9252,
+    "tags_majority_wrong": 0.0,
+    "mean_live_share": 0.8638
+   },
+   "DEFENDING IN DEFENSIVE THIRD": {
+    "n": 29,
+    "duration_s": {
+     "n": 29,
+     "median": 30.0,
+     "q25": 30.0,
+     "q75": 30.0,
+     "mean": 30.0,
+     "std": 0.0
+    },
+    "team_na": 0.069,
+    "frame_agreement": 0.7487,
+    "tags_majority_wrong": 0.2083,
+    "mean_live_share": 0.4549
+   },
+   "DEFENDING IN MIDDLE THIRD": {
+    "n": 61,
+    "duration_s": {
+     "n": 61,
+     "median": 17.48,
+     "q25": 12.76,
+     "q75": 23.72,
+     "mean": 18.63,
+     "std": 6.95
+    },
+    "team_na": 0.0,
+    "frame_agreement": 0.8933,
+    "tags_majority_wrong": 0.0492,
+    "mean_live_share": 0.9114
+   },
+   "DEFENSIVE TRANSITION": {
+    "n": 23,
+    "duration_s": {
+     "n": 23,
+     "median": 15.56,
+     "q25": 12.46,
+     "q75": 19.02,
+     "mean": 15.677,
+     "std": 3.76
+    },
+    "team_na": 0.0,
+    "frame_agreement": 0.7008,
+    "tags_majority_wrong": 0.1304,
+    "mean_live_share": 0.987
+   },
+   "GOALS": {
+    "n": 4,
+    "duration_s": {
+     "n": 4,
+     "median": 169.26,
+     "q25": 128.99,
+     "q75": 205.3,
+     "mean": 165.03,
+     "std": 65.415
+    },
+    "team_na": 0.0
+   },
+   "LONG BALL": {
+    "n": 27,
+    "duration_s": {
+     "n": 27,
+     "median": 12.4,
+     "q25": 10.52,
+     "q75": 15.64,
+     "mean": 13.219,
+     "std": 3.765
+    },
+    "team_na": 0.0,
+    "frame_agreement": 0.5525,
+    "tags_majority_wrong": 0.44,
+    "mean_live_share": 0.8146
+   },
+   "PLAYERS IN THE BOX": {
+    "n": 79,
+    "duration_s": {
+     "n": 79,
+     "median": 28.08,
+     "q25": 22.56,
+     "q75": 50.4,
+     "mean": 36.775,
+     "std": 19.214
+    },
+    "team_na": 0.0
+   },
+   "PROGRESSION": {
+    "n": 61,
+    "duration_s": {
+     "n": 61,
+     "median": 17.48,
+     "q25": 12.76,
+     "q75": 23.72,
+     "mean": 18.63,
+     "std": 6.95
+    },
+    "team_na": 0.0,
+    "frame_agreement": 0.8933,
+    "tags_majority_wrong": 0.0492,
+    "mean_live_share": 0.9114
+   },
+   "SET PIECES": {
+    "n": 55,
+    "duration_s": {
+     "n": 55,
+     "median": 35.0,
+     "q25": 35.0,
+     "q75": 35.0,
+     "mean": 32.273,
+     "std": 8.624
+    },
+    "team_na": 0.5455,
+    "frame_agreement": 0.6608,
+    "tags_majority_wrong": 0.3636,
+    "mean_live_share": 0.5663
+   }
+  },
+  "pairing": {
+   "attack_tags": 159,
+   "with_opposite_defend": 0.8553,
+   "defend_start_minus_attack_start_s": {
+    "n": 136,
+    "median": 0.0,
+    "q25": 0.0,
+    "q75": 0.0,
+    "mean": -0.06,
+    "std": 2.468
+   },
+   "defend_tags": 132
+  },
+  "code_mix": {
+   "BUILD UP": 21,
+   "PROGRESSION": 61,
+   "CREATING CHANCES": 29,
+   "LONG BALL": 27,
+   "ATTACKING TRANSITION": 23,
+   "SET PIECES": 55,
+   "DEFENDING IN MIDDLE THIRD": 61,
+   "DEFENDING IN DEFENSIVE THIRD": 29,
+   "DEFENDING IN ATTACKING THIRD": 21,
+   "DEFENSIVE TRANSITION": 23
+  },
+  "set_piece_types": {
+   "corner kick": 12,
+   "free kick": 4,
+   "goal kick": 9,
+   "kick off (after goal)": 4,
+   "kick off (start)": 1,
+   "throw-in": 25
+  },
+  "spells": {
+   "coverage_live": 0.737916034237251,
+   "coverage_dead": 0.24746625203194572,
+   "frame_agreement": 0.8145807710250647,
+   "frame_disagreement": 0.15577420586114762,
+   "n_spells": 155,
+   "n_tag_spells": 133,
+   "tag_spells_per_spell": 0.8580645161290322,
+   "missing_rate": 0.3225806451612903,
+   "missing_other_tagged": 0.1935483870967742,
+   "start_offset_s": {
+    "n": 105,
+    "median": -1.32,
+    "q25": -7.32,
+    "q75": 4.36
+   },
+   "end_offset_s": {
+    "n": 105,
+    "median": 5.04,
+    "q25": -1.32,
+    "q75": 13.84
+   },
+   "tag_spell_duration_s": {
+    "n": 133,
+    "median": 20.4,
+    "q25": 13.2,
+    "q75": 35.0
+   },
+   "verdicts": {
+    "correct": 103,
+    "wrong_team": 25,
+    "false_dead": 4,
+    "unverifiable": 1
+   },
+   "wrong_team_rate": 0.1893939393939394,
+   "false_dead_rate": 0.030303030303030304,
+   "confident_spell_duration_s": {
+    "n": 155,
+    "median": 11.4,
+    "q25": 5.76,
+    "q75": 22.86,
+    "mean": 16.643,
+    "std": 16.421
+   },
+   "missing_by_length": {
+    "2-5s": {
+     "n": 36,
+     "missing": 0.6944
+    },
+    "5-10s": {
+     "n": 39,
+     "missing": 0.4103
+    },
+    "10-20s": {
+     "n": 33,
+     "missing": 0.1818
+    },
+    "20-1e+09s": {
+     "n": 47,
+     "missing": 0.0638
+    }
+   }
+  },
+  "conflict_share_of_covered": 0.0752,
+  "set_pieces": {
+   "n": 55,
+   "dead_runs_ge_2s": 95,
+   "matched_to_dead_run": 49,
+   "set_piece_rate": 0.4842,
+   "start_minus_dead_end_s": {
+    "n": 49,
+    "median": -6.28,
+    "q25": -9.24,
+    "q75": -3.64,
+    "mean": -8.428,
+    "std": 7.58
+   },
+   "team_agreement": 0.6608,
+   "overlaps_possession_tag": 0.8182
+  }
+ },
+ "generator": {
+  "attack_mix": {
+   "BUILD UP": 21,
+   "PROGRESSION": 61,
+   "CREATING CHANCES": 29,
+   "LONG BALL": 27,
+   "ATTACKING TRANSITION": 23
+  },
+  "end_offset_s": {
+   "median": 5.04,
+   "iqr": 7.58
+  },
+  "false_rate": 0.03,
+  "max_offset_s": 20.0,
+  "min_phase_s": 1.0,
+  "min_spell_s": 3.0,
+  "missing_rate": 0.0,
+  "pairing_rate": 0.8553,
+  "phase_duration_s": {
+   "BUILD UP": {
+    "median": 20.4,
+    "iqr": 5.24
+   },
+   "PROGRESSION": {
+    "median": 17.48,
+    "iqr": 10.96
+   },
+   "CREATING CHANCES": {
+    "median": 30.0,
+    "iqr": 0.0
+   },
+   "LONG BALL": {
+    "median": 12.4,
+    "iqr": 5.12
+   },
+   "ATTACKING TRANSITION": {
+    "median": 15.56,
+    "iqr": 6.56
+   }
+  },
+  "set_piece_duration_s": {
+   "median": 35.0,
+   "iqr": 0.0
+  },
+  "set_piece_min_dead_s": 2.0,
+  "set_piece_offset_s": {
+   "median": -6.28,
+   "iqr": 5.6
+  },
+  "set_piece_rate": 0.4842,
+  "set_piece_team_na": 0.5455,
+  "set_piece_types": {
+   "corner kick": 12,
+   "free kick": 4,
+   "goal kick": 9,
+   "throw-in": 25
+  },
+  "start_offset_s": {
+   "median": -1.32,
+   "iqr": 5.84
+  },
+  "truncate_last": true,
+  "wrong_team_rate": 0.0
+ },
+ "calibration": {
+  "matches": [
+   "dfl:J03WOH",
+   "dfl:J03WQQ",
+   "dfl:J03WOY",
+   "dfl:J03WR9"
+  ],
+  "seeds": [
+   0,
+   1,
+   2
+  ],
+  "grid": {
+   "offset_scale": [
+    0.25,
+    0.5,
+    1.0
+   ],
+   "truncate_last": [
+    false,
+    true
+   ],
+   "min_spell_s": [
+    0.0,
+    3.0
+   ],
+   "missing_rate": [
+    0.0,
+    0.1,
+    0.2,
+    0.3
+   ],
+   "wrong_team_rate": [
+    0.0,
+    0.05,
+    0.1,
+    0.15
+   ],
+   "false_rate": [
+    0.0,
+    0.03
+   ]
+  },
+  "moment_scales": {
+   "missing_rate": 0.05,
+   "frame_agreement": 0.03,
+   "coverage_live": 0.05,
+   "coverage_dead": 0.05,
+   "wrong_team_rate": 0.05,
+   "false_dead_rate": 0.02,
+   "tag_spells_per_spell": 0.1
+  },
+  "loss": 16.3583,
+  "synthetic_moments": {
+   "missing_rate": 0.3873,
+   "frame_agreement": 0.7755,
+   "coverage_live": 0.7104,
+   "coverage_dead": 0.2808,
+   "wrong_team_rate": 0.1905,
+   "false_dead_rate": 0.0253,
+   "tag_spells_per_spell": 0.5092
+  },
+  "real_moments": {
+   "missing_rate": 0.3226,
+   "frame_agreement": 0.8146,
+   "coverage_live": 0.7379,
+   "coverage_dead": 0.2475,
+   "wrong_team_rate": 0.1894,
+   "false_dead_rate": 0.0303,
+   "tag_spells_per_spell": 0.8581
+  }
+ }
+}
