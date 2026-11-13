@@ -3,6 +3,8 @@ only on external").
 
     python scripts/fit_hsmm.py                         # writes configs/hsmm_v1_fit.yaml
     python scripts/fit_hsmm.py --base '{gbm: 1.0}'     # fit on top of other settings
+    python scripts/fit_hsmm.py --learned artifacts/seqmodel_v1.pt --out configs/hsmm_v2_fit.yaml
+                                                       # hsmm_v2: A7's sequence model as an expert
 
 Each val match is degraded with seeds 0-1, cleaned and prepared once (hsmm.prepare); every
 candidate only rebuilds the emissions and runs Viterbi (hsmm.decode_prepared). The objective is
@@ -46,7 +48,7 @@ REPORT = os.path.join(paths.RESULTS_DIR, "hsmm_fit.md")
 OUT = os.path.join(paths.CONFIGS_DIR, "hsmm_v1_fit.yaml")
 
 
-def prepared_val(seeds, deadball_params):
+def prepared_val(seeds, deadball_params, learned=None):
     run_lengths = missing_run_lengths(load_tracking("atd"))
     preps, truths = [], []
     for name in external.resolve("val"):
@@ -56,7 +58,10 @@ def prepared_val(seeds, deadball_params):
         for seed in seeds:
             degraded = degrade.degrade(tracking, labels, seed, run_lengths)
             clean, _ = clean_tracking(degraded, {})
-            preps.append(hsmm.prepare(clean, deadball_params))
+            prep = hsmm.prepare(clean, deadball_params)
+            if learned:
+                hsmm.add_learned(prep, learned)
+            preps.append(prep)
             truths.append(truth)
             print("prepared", name, seed, flush=True)
     return preps, truths
@@ -78,17 +83,26 @@ def main():
     parser.add_argument("--deadball", default="{}", help="deadball params (YAML)")
     parser.add_argument("--passes", type=int, default=2)
     parser.add_argument("--out", default=OUT)
+    parser.add_argument("--learned", nargs="+",
+                        help="sequence model(s) to add as the learned expert (A7; several = A8 ensemble)")
     args = parser.parse_args()
     base = yaml.safe_load(args.base) or {}
     deadball_params = yaml.safe_load(args.deadball) or {}
 
-    preps, truths = prepared_val(args.seeds, deadball_params)
+    preps, truths = prepared_val(args.seeds, deadball_params, args.learned)
+    grid = dict(GRID)
     current = dict(base)
+    if args.learned:
+        current["learned_models"] = args.learned
+        current.setdefault("w_learned_team", 1.0)
+        current.setdefault("w_learned_dead", 1.0)
+        grid = dict({"w_learned_team": [0.0, 0.5, 1.0, 2.0, 4.0, 8.0],
+                     "w_learned_dead": [0.0, 0.5, 1.0, 2.0, 4.0]}, **GRID)
     best, best_macro = score(preps, truths, current)
     log = ["start {} -> spellF1 {:.4f} macroF1 {:.4f}".format(current, best, best_macro)]
     print(log[-1], flush=True)
     for _ in range(args.passes):
-        for name, values in GRID.items():
+        for name, values in grid.items():
             for value in values:
                 trial = dict(current, **{name: value})
                 if trial == current:

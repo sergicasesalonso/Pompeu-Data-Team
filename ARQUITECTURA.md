@@ -33,7 +33,13 @@ data/ (ATD, XML) → pompeu.io.atd → Tracking → [clean (A1)] → método (co
 | `pompeu/validate/harness.py` | Los 4 bancos y el leaderboard |
 | `pompeu/validate/stress.py` | Borra el balón en la ventana pública (30/50/70 %, 20 semillas) con la distribución real de huecos |
 | `pompeu/validate/bootstrap.py` | Intervalos 5–95 % sobre el código oficial de la métrica |
-| `external/ vision/` | Vacíos, para A6 y la Línea B |
+| `pompeu/external/` | A6: partidos externos con etiquetas (DFL, Metrica), registro y reparto, simulador de degradación, ejemplos de entrenamiento |
+| `pompeu/models/deadball_gbm.py` | A3 (paso 3): clasificador vivo/muerto LightGBM entrenado con los partidos externos |
+| `pompeu/models/seqmodel.py` | A7: modelo secuencial (Set Transformer + Transformer temporal bidireccional) |
+| `pompeu/decode/mbr.py` | A9: decodificación MBR (mejor spellF1 esperado) |
+| `pompeu/decode/policy.py` | A10: política final de etiquetas |
+| `artifacts/` | Modelos entrenados (se suben a git: entrenados solo con datos externos abiertos) |
+| `vision/` | Vacío, para la Línea B |
 
 ## Limpieza del tracking (A1)
 
@@ -200,6 +206,59 @@ Un balón muerto también tiene equipo: el que reinicia (lo dice CHALLENGE.md). 
 - **Sobre el rango de 300–400 posesiones de la guía:** la GT pública tiene posesiones de 14,2 s de media. Con un 45 % de `D` salen unas **246** posesiones, y con un 35 %, unas 291. Ese rango no es coherente con el propio rango de `D` del plan. Nuestros modelos (238–250 posesiones de 14–15 s) sí lo son con la GT.
 - **Configs:** `configs/hsmm_v1.yaml` y `configs/hsmm_v1_rules.yaml`. Los parámetros se cambian en `params: {hsmm: {...}, deadball: {...}, touches: {...}}`. Ninguno se ha ajustado con la GT: son valores físicos o del plan, y el único que se ha elegido con `public_stress` es el peso de la segmentación de A3 (3).
 - **Entorno:** numba 0.66 está fijado en `requirements.lock`. En Windows, crea el venv en una ruta corta (por ejemplo `C:\venvs\pompeu`): si la ruta es larga, la DLL de numba supera el límite de 260 caracteres y no carga.
+
+## Datos externos y simulador de degradación (A6)
+
+**Partidos** (`pompeu/external/`). Un único registro (`external.load("dfl:J03WPY")`, `external.resolve("test")`) con un reparto **por partido completo**, para que ningún frame se use a la vez para entrenar y para puntuar:
+
+| Reparto | Partidos | Para qué |
+|---|---|---|
+| `test` | `dfl:J03WMX` (Köln–Bayern), `dfl:J03WPY` (Düsseldorf–Nürnberg), `metrica:3` | El banco `external`, **el que decide**. Nunca se entrena ni se ajusta con él |
+| `val` | `dfl:J03WN1` (Bochum–Leverkusen), `metrica:2` | Ajuste de pesos (A5), parada temprana y calibración (A7/A8) |
+| `train` | `dfl:J03WOH`, `dfl:J03WQQ`, `dfl:J03WOY`, `dfl:J03WR9`, `metrica:1` | Todo lo que aprende (A3 LightGBM, A7) |
+
+| Fuente | Qué es | Licencia y acceso |
+|---|---|---|
+| **IDSSE / DFL** (Bassek, Weber, Rein y Memmert 2025, *Scientific Data* 12:195, doi:10.1038/s41597-025-04505-y) | 7 partidos de Bundesliga y 2. Bundesliga 2022/23, tracking TRACAB a 25 fps, con `BallStatus` y `BallPossession` **por frame** | CC-BY 4.0. Copia oficial en figshare (doi:10.6084/m9.figshare.28196177), que bloquea las descargas automáticas; se usa el espejo idéntico de Hugging Face `pysport/idsse-data` |
+| **Metrica Sports sample data** (github.com/metrica-sports/sample-data) | 3 partidos anonimizados, 25 fps, con eventos. Es el mismo proveedor que el reto | Datos de muestra públicos de Metrica. Las etiquetas H/A/D se **derivan de los eventos**: el equipo del último evento con control, y `D` desde una salida, falta o gol hasta el siguiente `SET PIECE` |
+
+- **Descarga y conversión:** `python scripts/prepare_external.py --matches all` (DFL); el repositorio de Metrica se clona en `data/external/metrica/`. Los datos van a `data/external/` y la caché a `cache/external/`, ambos fuera de git.
+- **Alineación de convenciones** (paso 2 de A6, un único parámetro): la posesión DFL cambia con casi cada toque (8,4 posesiones por minuto de juego frente a 4,2 de la GT pública). `align_labels` da a una posesión de menos de **5 s** que queda entre dos del rival el equipo que la rodea, porque es un toque sin control. Con 5 s DFL queda en 4,26 posesiones por minuto, la tasa de la GT pública.
+- **Metrica 1 y 2 tienen el balón pegado al portador** (mediana de 0,28 m al jugador más cercano, frente a 1,4 m en DFL y 1,9 m en el ATD): su balón está parcialmente reconstruido a partir de los eventos. Por eso el partido de Metrica en `test` es el 3 (1,3 m, realista).
+
+**Simulador** (`pompeu/external/degrade.py`). Hace que un partido limpio se parezca al ATD, y cada degradación reproduce una medida del ATD:
+- balón ausente en un 41 % de los frames, con la distribución de huecos del ATD y más a menudo durante las paradas;
+- balón falso en un 0,12 % de los frames;
+- intercambios de identidad cuando dos compañeros se cruzan;
+- jugadores congelados lejos del balón (~1 %);
+- tracklets log-normales (mediana 35 s en juego) con huecos individuales;
+- pérdidas en grupo (1–3 jugadores lejos del balón);
+- duplicados a ~2 m;
+- tracklets empaquetados en slots que se reutilizan;
+- ruido de 5 cm en el balón y un sesgo constante por tracklet en los jugadores.
+
+`python scripts/degradation_fit.py` compara 10 estadísticas con el ATD (KS D, `results/degradation_fit.md` y sus gráficas). En DFL pasan todas las distribuciones salvo la longitud de los huecos, que queda justo por encima del umbral (D 0,14–0,20). Los fallos de Metrica son propiedades de sus datos originales.
+
+**Ejemplos de entrenamiento** (`pompeu/external/examples.py`). Para cada (partido, semilla, intercambio de equipos) se degrada el partido, se limpia con A1, se calculan los 203 rasgos de A2 y los tokens por jugador a 5 Hz, y todo se guarda en caché. El intercambio local↔visitante se hace **sobre el partido limpio, recalculando todo**, en vez de traducir las columnas una a una. Las columnas de Smart Tagging quedan fuera de los modelos aprendidos (`model_columns`), porque son NaN en los partidos externos y tendrían otro significado en BAR-ATH. Comandos: `scripts/build_examples.py` y `scripts/build_sequences.py`.
+
+**El banco `external` del arnés** puntúa el reparto `test`, con 2 degradaciones por partido, contra las etiquetas alineadas. Hay ~690 posesiones reales, así que los intervalos son 4–5 veces más estrechos que en la ventana pública.
+
+## Clasificador vivo/muerto (A3, paso 3)
+
+`pompeu/models/deadball_gbm.py` es un LightGBM sobre 185 rasgos de A2, entrenado con `train` (1,4 M frames) y con parada temprana en `val`. El modelo (`artifacts/deadball_gbm_v1.txt`) se sube a git. En A3 entra como un experto más, con su log-odds por frame (`deadball: {gbm_weight: 1.0}`). Entrenamiento e informe: `python scripts/train_deadball_gbm.py` → `results/deadball_gbm_report.md`.
+
+F1 de "muerto" en `test`: **0,95–0,97 en DFL** (las reglas de A3, 0,91; el umbral del plan, 0,90) y 0,78 en Metrica 3, cuyas etiquetas `D` salen de los eventos y son más gruesas.
+
+## Ajuste de pesos del HSMM (A5)
+
+`python scripts/fit_hsmm.py --deadball "{gbm_weight: 1.0}"` prepara los partidos de `val` una sola vez (`hsmm.prepare`) y busca por descenso por coordenadas los pesos que maximizan el spellF1 (`hsmm.decode_prepared`). El peso del Smart Tagging no se ajusta, porque los partidos externos no tienen. El resultado se guarda en `configs/hsmm_v1_fit.yaml` y el registro de la búsqueda en `results/hsmm_fit.md`.
+
+En `val` pasa de spellF1 **0,532 a 0,588**. La proximidad cruda acaba con peso 0: cuenta como evidencia algo que el reto dice que no es control (un rival cerca). Se queda con algo de `rules_v0` (0,5), con posesiones de mediana 12 s y con el clasificador de A3 activo.
+
+## MBR y política final (A9, A10)
+
+- **MBR** (`pompeu/decode/mbr.py`, `hsmm: {mbr: true}`): extrae 200 segmentaciones de la posterior del HSMM (FFBS exacto, `viterbi.sample`) y, partiendo de Viterbi, hace búsqueda local voraz (desplazar fronteras ±5/±15 frames, absorber posesiones de menos de 3 s) mientras suba el spellF1 **esperado**. El evaluador rápido coincide con `possession_metrics` hasta 12 decimales (`tests/test_mbr.py`). No están implementados los k-best, el medoide ni el desempate por macroF1.
+- **Política final** (`pompeu/decode/policy.py`, `policy: {}` en la config): ninguna `X` en frames puntuados, `X` fuera de las partes y ninguna racha de 1–2 frames.
 
 ## Bancos de validación
 
