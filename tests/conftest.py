@@ -33,3 +33,18 @@ def atd():
 def tracking(atd):
     from pompeu.io.contract import Tracking
     return Tracking.from_atd(atd)
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_tagging(request, monkeypatch):
+    """Synthetic tests see no Smart Tagging, whatever is in data/.
+
+    Synthetic scenes carry meta game "BAR-ATH", so build_features(tagging="auto") and
+    deadball.detect(tags="auto") would load the real match's Smart Tagging when data/ has it and
+    add its votes and set pieces to frames that have nothing to do with the scene: the same test
+    then gives different numbers with and without the gated data. Only tests on the real match
+    (the `atd` / `tracking` fixtures) get the real tagging.
+    """
+    if {"atd", "tracking"} & set(request.fixturenames):
+        return
+    monkeypatch.setattr("pompeu.features.build.load_tagging_for", lambda tracking: None)
