@@ -19,7 +19,7 @@ URL = "https://github.com/SkillCorner/opendata.git"
 
 
 def main():
-    target = os.path.dirname(os.path.dirname(skillcorner.ROOT))          # .../opendata
+    target = os.path.dirname(skillcorner.ROOT)                              # .../opendata
     if not os.path.isdir(os.path.join(target, ".git")):
         os.makedirs(os.path.dirname(target), exist_ok=True)
         subprocess.run(["git", "clone", "--depth", "1", URL, target], check=True,
