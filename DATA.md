@@ -15,8 +15,9 @@ It was recorded twice, by two different cameras, and you get tracking for both.
 | track slots | 46 | 51 |
 | ball visible | 56.9% of frames | 50.5% of frames |
 
-Everything is fair game, in any combination. A system built only on the ball track is as
-legitimate as one that reads the video. There is no intended solution.
+Everything is fair game, in any combination, as input to an algorithm. A system built only on the
+ball track is as legitimate as one that reads the video. There is no intended solution. What is not
+allowed is labelling or correcting any of it by hand — see [RULES.md](RULES.md).
 
 > **If your submission has ~164k rows, you indexed the broadcast video.** The row-count check will
 > reject it, which is exactly why that check exists.
@@ -277,6 +278,6 @@ possessions of mean 14.2 s. Everything outside is `X` and is never scored, so yo
 submission validates against it unchanged. `..._public_meta.json` has the same numbers in
 machine-readable form.
 
-It is for checking that your pipeline is right, **not for ranking** — see
-[EVALUATION.md](EVALUATION.md). The final ranking uses the full-match ground truth (158,857 graded
+It is for checking that your pipeline is right — **not for ranking, not training data and not a
+tuning set**. See [EVALUATION.md](EVALUATION.md) and [RULES.md](RULES.md). The final ranking uses the full-match ground truth (158,857 graded
 frames), which stays private.

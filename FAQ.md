@@ -8,6 +8,11 @@ the wrong thing. Your score comes from the full-match ground truth, which stays 
 The public window cannot rank anybody — the baselines here prove it: the smoothing window that wins
 on the public 5 minutes loses on the full match. See [EVALUATION.md](EVALUATION.md).
 
+### Can I train or tune a model on the 5 public minutes?
+
+No. They are for checking that your pipeline is correct, not training data and not a tuning set.
+See [RULES.md](RULES.md).
+
 ### Can I submit only the 5 minutes?
 
 No. Exactly 199,319 rows, every time. Write `X` where you have no answer. Submitting a short file
@@ -81,6 +86,9 @@ Yes, and it is a legitimate line of attack. The provided data exists so nobody *
 detection and calibration first — a starting point, not a constraint. If better tracking gets you a
 better answer, that is a better answer.
 
+The improvements must come out of an algorithm. Correcting the tracking of the provided game by
+hand is hand annotation, and is not allowed.
+
 ### Can I use the Smart Tagging? Isn't that cheating?
 
 Use it — that is why it is there. It is not ground truth and not derived from it; Metrica generates
@@ -95,6 +103,9 @@ intervals are *phases*, not possessions.
 Yes, provided the organisers can access what you used and your technical document explains it. See
 [RULES.md](RULES.md).
 
+External data must be about **other games**. Any human-produced data about the provided game —
+event data, corrected tracking, annotations, from any source — is not allowed.
+
 However, as the Terms and Conditions state, participants shall not upload, disclose or otherwise
 make available to any third-party hosted or cloud-based LLM any videos, datasets, confidential
 information or other restricted materials provided in connection with the Competition, or any
@@ -102,7 +113,12 @@ extracts thereof.
 
 ### Can I hand-label some frames?
 
-No — the labels you submit must come out of an algorithm. See [RULES.md](RULES.md).
+Not on the provided game, in any amount and for any purpose. The labels you submit must come out of
+an algorithm, and no hand labels on the game may be used to train or validate it either.
+
+On **other games**, yes — label as much as you like to train or validate a model, provided the
+organisers can access the labels and your technical document explains them. See
+[RULES.md](RULES.md).
 
 ### What happens if my file is malformed?
 
