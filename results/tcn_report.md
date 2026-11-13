@@ -54,3 +54,37 @@ python scripts/experiments/tcn_train.py --out cache/tcn/models/r1.pt --steps 150
 python scripts/experiments/tcn_train.py --out cache/tcn/models/r2.pt --extra --extra-seeds 0 --steps 2500 --eval-every 100 --dropout 0.3 --input-dropout 0.2 --weight-decay 0.05
 python scripts/experiments/tcn_val.py --model cache/tcn/models/r2.pt --seeds 0 1 2 3 4 --workers 4 --smooth 50 100 150 --w-team 0.5 1 2 --w-dead 1 2 --mbr 1/0 2/1 1/2 4/1
 ```
+
+## Real vs synthetic tags (2026-11-13, partial: smoke run, val seed 0 only)
+
+Script: `scripts/experiments/tcn_tags_real.py` (model r2, HSMM+TCN 1/2 MBR). No GT on BAR-ATH. The reference on both sides is rules_v0 run without any tagging ("proxy"). Val: `dfl:J03WN1` and `metrica:2`, degraded as in tcn_val, synthetic tags. The full run (seeds 0-4, filtered real tags, directional agreement, sensitivity) is **running on the tower** (`~/mtah/tcn_tags.sh`, log `~/mtah/tcn_tags.log`, JSON `~/mtah/tcn_tags.json`). TODO: paste its numbers here.
+
+| aggregate | BAR-ATH real | val synthetic (vs proxy) | val synthetic (vs GT) |
+|---|---|---|---|
+| possession phases per min (attacking codes) | 1.60 | 2.52 | - |
+| set pieces per min | 0.55 | 0.42 | - |
+| tag team agrees with the reference (tags checked) | **0.849** (331) | 0.679 (725) | 0.744 |
+| frame sign of st_vote agrees, ball present | 0.790 | 0.732 | 0.764 |
+| frame sign agrees, ball missing (proxy is weak here) | 0.604 | 0.677 | 0.813 |
+| tag start minus nearest same-team spell start, p25 / p50 / p75 (s) | -6.2 / -0.4 / 6.2 | -6.9 / 0.6 / 8.6 | -3.8 / 0.4 / 5.5 |
+| share of starts within ±5 s | 0.45 | 0.37 | 0.54 |
+| gap between phase starts, p50 / p90 (s) | 23.7 / 59.5 | 16.7 / 45.6 | - |
+| graded frames under a voting tag | 0.50 | 0.55 | - |
+| ... ball present / **ball missing** | 0.66 / **0.27** | 0.64 / **0.43** | - |
+| frames within 2 / 5 / 10 s of a tag boundary | 0.23 / 0.48 / 0.70 | 0.26 / 0.55 / 0.79 | - |
+
+How much the tags move the model, tags on vs an empty tagging (graded frames):
+
+| | BAR-ATH real (unfiltered) | val synthetic |
+|---|---|---|
+| mean abs change of the TCN team log-odds | 0.53 | 0.49 |
+| TCN argmax changed | 6.1 % | 6.1 % |
+| ... ball missing | 9.0 % | 10.6 % |
+| HSMM+TCN labels changed | 4.5 % | 2.6 % |
+
+Reading so far:
+- The real tags agree with the ATD at least as well as the synthetic ones (team 0.85 vs 0.68, timing as good or better), so the error model is, if anything, pessimistic on accuracy.
+- But the real tags are **sparser**: about 37 % fewer possession phases per minute, and they cover only 27 % of BAR-ATH's ball-missing frames against 43 % on val. The gain comes mostly from the ball-missing frames, so this is the main transfer risk.
+- **Input bug found:** the generator never emits zone codes (BALL IN FINAL THIRD, BALL IN THE BOX, PLAYERS IN THE BOX), GOALS or kick-off set pieces. In training `st_zone_team`, `goal_active` and `sp_kickoff_*` are constant 0, but on BAR-ATH they are non-zero on 52 % / 10 % of frames. `st_active` doubles (mean 2.49 vs 1.18), and `st_prev_vote` is non-zero 44 % vs 96 %. The input weights of those columns never got a gradient, so on the real match they add noise. Fix: restrict the real tags to the codes the generator produces (`like_synthetic` in the script). The pipeline must do the same. The unfiltered "model moves as much" numbers above are contaminated by this. The tower run measures the filtered version.
+
+TODO (task 2, not started): `hsmm_tcn` method in the pipeline with deterministic CPU retraining (`tcn.train()` is added but not wired yet), `configs/hsmm_tcn.yaml`, and a sha256 check over two clean runs plus a second machine.
