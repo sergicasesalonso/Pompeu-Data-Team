@@ -91,3 +91,8 @@ results/*
 *.safetensors
 *.wav
 checkpoints/
+# Team rule: from results/ only the leaderboard and the *_report.md files are published.
+!results/*_report.md
+# External data (IDSSE, Metrica) lives in data/ and its derivatives in cache/, both ignored above.
+# artifacts/ holds the trained models (deadball_gbm, seqmodel): trained on open external data only,
+# committed so the submission regenerates without retraining.
