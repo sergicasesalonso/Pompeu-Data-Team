@@ -13,6 +13,13 @@ prepared once (hsmm.prepare); coordinate descent over fit_hsmm.GRID plus gap_tea
 [0, 0.25, 0.5, 1], two passes, acceptance > best + 1e-4. Start: hsmm_v2 (gap_team_weight 0.25,
 configs/gap_team_v1.json, other HSMM params at defaults). Only `val`; test is never touched.
 Nothing is printed per frame.
+
+Second fit (writes configs/hsmm_v2_fitavg2.yaml):
+
+    python scripts/experiments/fit_hsmm_avg.py --start configs/hsmm_v2_fitavg.yaml         --gap-team-model configs/gap_team_v2.json --grid wide --out configs/hsmm_v2_fitavg2.yaml
+
+starts from hsmm_v2_fitavg's weights with the augmented gap-team expert (gap_team_v2) and widens
+the grids of the parameters that hsmm_v2_fitavg left on an edge (WIDE below).
 """
 
 import argparse
@@ -38,6 +45,18 @@ import fit_hsmm  # noqa: E402
 VALUES = (2.0, 5.0, 8.0)
 GRID = dict(fit_hsmm.GRID)
 GRID["gap_team_weight"] = [0.0, 0.25, 0.5, 1.0]
+# --grid wide: fit_hsmm.GRID with the edges hsmm_v2_fitavg hit opened up, and gap_team_weight
+# over a wider range (its gap_team_v2 expert has never been fitted).
+WIDE = dict(fit_hsmm.GRID)
+WIDE.update({
+    "gap_team_weight": [0.25, 0.5, 1.0, 1.5, 2.0, 3.0],
+    "a3_segment_llr": [3.0, 6.0, 10.0, 15.0],
+    "w_dead": [1.0, 2.0, 3.0, 4.0],
+    "p_poss_to_dead": [0.3, 0.4, 0.5, 0.6],
+    "poss_median_s": [4.0, 6.0, 8.0, 12.0],
+    "w_proximity": [0.0, 0.25, 0.5, 1.0],
+})
+GRIDS = {"v1": GRID, "wide": WIDE}
 START = os.path.join(paths.CONFIGS_DIR, "hsmm_v2.yaml")
 OUT = os.path.join(paths.CONFIGS_DIR, "hsmm_v2_fitavg.yaml")
 
@@ -83,21 +102,29 @@ def main():
     parser.add_argument("--seeds", type=int, nargs="+", default=[0, 1])
     parser.add_argument("--passes", type=int, default=2)
     parser.add_argument("--out", default=OUT)
+    parser.add_argument("--start", default=START, help="config whose hsmm params start the fit")
+    parser.add_argument("--gap-team-model", default=None,
+                        help="override the start's hsmm.gap_team_model (path in the config)")
+    parser.add_argument("--grid", choices=sorted(GRIDS), default="v1")
     args = parser.parse_args()
+    grid = GRIDS[args.grid]
+    start_name = os.path.splitext(os.path.basename(args.start))[0]
     started_all = time.time()
 
-    with open(START, encoding="utf-8") as handle:
+    with open(args.start, encoding="utf-8") as handle:
         start_cfg = yaml.safe_load(handle)
     start = dict(start_cfg["pipeline"]["params"]["hsmm"])
+    if args.gap_team_model:
+        start["gap_team_model"] = args.gap_team_model.replace(os.sep, "/")
     deadball_params = start_cfg["pipeline"]["params"].get("deadball") or {}
 
     preps, truths = prepared_val(args.seeds, deadball_params)
     current = dict(start)
     best, best_each = score(preps, truths, current)
     start_best, start_each = best, best_each
-    print("start (hsmm_v2) mean spellF1 {:.4f}  {}".format(best, fmt(best_each)), flush=True)
+    print("start (" + start_name + ") mean spellF1 {:.4f}  {}".format(best, fmt(best_each)), flush=True)
     for npass in range(args.passes):
-        for name, values in GRID.items():
+        for name, values in grid.items():
             for value in values:
                 trial = dict(current, **{name: value})
                 if trial == current:
@@ -115,7 +142,7 @@ def main():
     print("\nmoved: {}".format(moved or "nothing"))
     print("val mean spellF1 {:.4f} -> {:.4f}; {}".format(start_best, best, fmt(best_each)))
     print("  (start {})".format(fmt(start_each)))
-    edges = {k: v for k, v in current.items() if k in GRID and v in (GRID[k][0], GRID[k][-1])}
+    edges = {k: v for k, v in current.items() if k in grid and v in (grid[k][0], grid[k][-1])}
     print("on a grid edge: {}".format(edges or "none"))
     cfg = {"name": os.path.splitext(os.path.basename(args.out))[0], "tracking": "atd",
            "pipeline": {"method": "hsmm_v1",
@@ -123,10 +150,13 @@ def main():
                         "clean": {}}}
     with open(args.out, "w", encoding="utf-8", newline="\n") as handle:
         handle.write(
-            "# Fitted by scripts/experiments/fit_hsmm_avg.py from hsmm_v2 on the val external\n"
-            "# matches ({}), seeds {}; objective = mean val spellF1 over min_possession_s\n"
-            "# 2/5/8 s. val mean {:.4f} ({}). Test never used.\n"
-            .format(", ".join(external.resolve("val")), args.seeds, best, fmt(best_each)))
+            "# Fitted by scripts/experiments/fit_hsmm_avg.py from {} (gap_team_model {},\n"
+            "# grid {}) on the val external matches ({}), seeds {}; objective = mean val\n"
+            "# spellF1 over min_possession_s 2/5/8 s. val mean {:.4f} ({}). Test never used.\n"
+            "# On a grid edge: {}.\n"
+            .format(start_name, current.get("gap_team_model"), args.grid,
+                    ", ".join(external.resolve("val")), args.seeds, best, fmt(best_each),
+                    edges or "none"))
         yaml.safe_dump(cfg, handle, sort_keys=False)
     print("wrote", args.out)
     print("runtime {:.0f} s".format(time.time() - started_all))
