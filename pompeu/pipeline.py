@@ -6,6 +6,7 @@ A config names a method and its parameters:
       method: baseline_nearest
       params: {window: 50}
       clean: {}            # optional: A1 cleaning first, with pompeu.clean.DEFAULTS overridden
+      policy: {}           # optional: A10's final label policy last (pompeu.decode.policy)
 
 and every method is a function (tracking, **params) -> (N,) array of H/A/D/X labels, one per row
 of the Tracking it was given. Methods never see a ground truth, and never assume the Tracking is a
@@ -42,6 +43,10 @@ def predict(tracking, pipeline_cfg):
     if "clean" in pipeline_cfg:
         tracking, _ = clean_tracking(tracking, pipeline_cfg["clean"])
     labels = np.asarray(METHODS[method](tracking, **(pipeline_cfg.get("params") or {})))
+    if "policy" in pipeline_cfg:
+        # A10: zero X on graded frames, X outside the halves, no 1-2 frame runs.
+        from pompeu.decode.policy import finalize
+        labels = finalize(labels, tracking, pipeline_cfg["policy"])
     if labels.shape != (tracking.n_frames,):
         raise ValueError("{} returned shape {}, expected ({},)".format(
             method, labels.shape, tracking.n_frames))
