@@ -163,6 +163,14 @@ def main():
                     "val_items": len(Zv), "args": vars(args), "weights_sha": weights_hash})
     print("best step {} val_ce {:.4f}; weights sha256[:16] {}; {:.0f} s".format(
         best[2], best[0], weights_hash, time.time() - started))
+    metrics_path = os.environ.get("TORRE_METRICS")
+    if metrics_path:                                   # aggregate numbers only (torre.py convention)
+        import json
+        with open(metrics_path, "w", encoding="utf-8") as handle:
+            json.dump({"weights_sha": weights_hash, "best_step": best[2],
+                       "best_val_ce": round(best[0], 4), "train_items": len(Z),
+                       "val_items": len(Zv), "device": device.type,
+                       "threads": torch.get_num_threads()}, handle)
 
 
 if __name__ == "__main__":

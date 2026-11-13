@@ -59,25 +59,8 @@ _STATE = {}
 
 # -- tags ----------------------------------------------------------------------------------------
 
-def empty_tagging():
-    return pd.DataFrame({"code": pd.Series([], dtype=object),
-                         "start_frame": pd.Series([], dtype=np.int64),
-                         "end_frame": pd.Series([], dtype=np.int64),
-                         "team": pd.Series([], dtype=np.int64),
-                         "type": pd.Series([], dtype=object),
-                         "half": pd.Series([], dtype=np.int64),
-                         "tags": pd.Series([], dtype=object)})
-
-
-def like_synthetic(tags):
-    """Real tags restricted to what the generator produces: possession phases, and set pieces of
-    the generator's four types. Zone / goal / kick-off codes never occur in training (their input
-    columns are constant 0 there), so on BAR-ATH they would be out-of-distribution inputs."""
-    from pompeu.external.synthetic_tags import ATTACK_CODES, DEFEND_CODES, load_error_model
-    types = set(load_error_model()["set_piece_types"])
-    keep = (tags["code"].isin([c for c in ATTACK_CODES + DEFEND_CODES if c != "SET PIECES"])
-            | ((tags["code"] == "SET PIECES") & tags["type"].isin(types)))
-    return tags[keep].reset_index(drop=True)
+empty_tagging = tcn.empty_tagging
+like_synthetic = tcn.like_synthetic
 
 
 def perturb(tags, kind, value, seed, n, fps):

@@ -21,6 +21,7 @@ import json
 import numpy as np
 
 from pompeu.clean import clean_tracking
+from pompeu.experimental import hsmm_tcn
 from pompeu.models import baseline, deadball_vote, hsmm, rules
 
 METHODS = {
@@ -28,6 +29,7 @@ METHODS = {
     "deadball_vote": deadball_vote.predict,     # A3: baseline vote + dead-ball detector
     "rules_v0": rules.predict,                  # A4: touches + control state machine
     "hsmm_v1": hsmm.predict,                    # A5: semi-Markov model over H/A/D
+    "hsmm_tcn": hsmm_tcn.predict,               # B: hsmm_v1 + dilated-TCN expert (CPU, deterministic)
 }
 
 
