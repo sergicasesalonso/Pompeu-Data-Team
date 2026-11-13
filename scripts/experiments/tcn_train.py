@@ -46,6 +46,8 @@ def main():
     parser.add_argument("--out", required=True)
     parser.add_argument("--tag", default="v1")
     parser.add_argument("--extra", action="store_true")
+    parser.add_argument("--extra-seeds", type=int, nargs="+", default=None,
+                        help="only these degradation seeds of the extra_train items")
     parser.add_argument("--steps", type=int, default=4000)
     parser.add_argument("--batch", type=int, default=16)
     parser.add_argument("--window", type=int, default=1024)
@@ -62,14 +64,26 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     started = time.time()
 
-    train_names = list(external.SPLITS["train"]) + (list(external.EXTRA_TRAIN) if args.extra else [])
     val_names = list(external.SPLITS["val"])                               # never "test"
-    train_paths, val_paths = items_for(train_names, args.tag), items_for(val_names, args.tag)
-    train = [tcn.load_item(p) for p in train_paths]
-    val = [tcn.load_item(p) for p in val_paths]
+    train_paths = items_for(list(external.SPLITS["train"]), args.tag)
+    if args.extra:
+        extra = items_for(list(external.EXTRA_TRAIN), args.tag)
+        if args.extra_seeds is not None:
+            extra = [p for p in extra if any("_s{}_".format(s) in os.path.basename(p)
+                                             for s in args.extra_seeds)]
+        train_paths += extra
+    val_paths = items_for(val_names, args.tag)
+    # Normalisation from the train split's own items (the extra matches only add examples);
+    # inputs kept as float16 in memory, cast per batch.
+    train = [tcn.load_item(p) for p in train_paths[:len(items_for(list(external.SPLITS["train"]),
+                                                                 args.tag))]]
     norm = tcn.fit_normalisation(train)
-    Z = [tcn.normalise(it["X"], it["names"], norm) for it in train]
-    Y = [it["y"].astype(np.int64) for it in train]
+    Z, Y = [], []
+    for p in train_paths:
+        it = tcn.load_item(p)
+        Z.append(tcn.normalise(it["X"], it["names"], norm).astype(np.float16))
+        Y.append(it["y"].astype(np.int64))
+    val = [tcn.load_item(p) for p in val_paths]
     Zv = [tcn.normalise(it["X"], it["names"], norm) for it in val]
     Yv = [it["y"].astype(np.int64) for it in val]
     del train, val                                   # raw inputs no longer needed
@@ -115,7 +129,7 @@ def main():
         xb, yb = [], []
         for i in picks:
             start = int(rng.integers(0, max(1, len(Z[i]) - L)))
-            xb.append(Z[i][start:start + L])
+            xb.append(Z[i][start:start + L].astype(np.float32))
             yb.append(Y[i][:, start:start + L])
         xb = torch.as_tensor(np.stack(xb), device=device)
         yb = torch.as_tensor(np.stack(yb), device=device)                     # (B, heads, L)
