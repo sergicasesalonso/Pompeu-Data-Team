@@ -94,6 +94,9 @@ def main():
           "(no evidence {}); kept {}".format(c["candidates"], args.max_fit_m, c["dropped_speed"],
                                             c["dropped_reference"], c["reference_no_evidence"],
                                             c["kept"]))
+    if "speed_unknown" in c:
+        print("speed       {} candidates with unknown broadcast ball speed (not speed-filtered)"
+              .format(c["speed_unknown"]))
     print("candidates  {} broadcast ball candidates in".format(r["candidates_in"]))
     print("coverage    graded frames with ball: {} -> {} of {} ({:.1%} -> {:.1%})".format(
         r["graded_with_ball_before"], r["graded_with_ball_after"], r["graded_frames"],

@@ -376,6 +376,9 @@ def ball_candidates(alignment, bcast_tracking, max_fit_m=2.0, frame0=0, max_spee
         v = _ball_speed(bball, float(bcast_tracking.meta.get("fps", 25)))[b_of_t[t]]
         fast = np.isfinite(v) & (v > max_speed_ms)
         stats["dropped_speed"] = int(fast.sum())
+        # Unknown speed (an edge of a broadcast ball gap) passes the filter unchecked; counted so
+        # the size of that blind spot is visible.
+        stats["speed_unknown"] = int((~np.isfinite(v)).sum())
         t, xy = t[~fast], xy[~fast]
     if reference_xy is not None and len(t):
         ref = np.asarray(reference_xy, dtype=np.float64)
