@@ -137,7 +137,8 @@ single hyperparameter on a trivial baseline, with nothing adversarial about it. 
 possession moves `spellF1` by roughly six points here.
 
 Use the public window to check that your pipeline is *correct* — frames aligned, file well-formed,
-labels meaning what you think — never to choose between two versions of it. When a gap looks real,
+labels meaning what you think — never to choose between two versions of it, and never as training
+data. That is a rule, not just advice: see [RULES.md](RULES.md). When a gap looks real,
 run `--bootstrap 1000` and check whether the intervals overlap. They usually will.
 
 ---

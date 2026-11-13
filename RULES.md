@@ -10,8 +10,8 @@
    you built and why.
 
 Within that, nothing is off the table. Any language, any framework. Pre-trained models, commercial
-or open. LLMs, hosted or local. External data. Your own detection, tracking or event-recognition
-models. Classical methods with no learning at all.
+or open. LLMs, hosted or local. External data about other games. Your own detection, tracking or
+event-recognition models. Classical methods with no learning at all.
 
 Both conditions exist for the same reason: the score decides the ranking, and the repository and
 document are what make the score mean something. A method nobody can access and nobody can
@@ -26,9 +26,13 @@ You are given automatic tracking, tactical tagging and homography so that no tea
 detection, re-identification and camera calibration before starting on the actual question.
 
 **Improving that data, or replacing it with your own, is entirely legitimate** and needs no
-justification. Run your own detector, fix the tracking, build your own event recognition — if it
-produces a better answer, it is a better answer. We do not care where the intermediate
-representations come from.
+justification. Run your own detector, improve the tracking with your own algorithms, build your own
+event recognition — if it produces a better answer, it is a better answer. We do not care where the
+intermediate representations come from, as long as they are produced by an algorithm.
+
+Corrections must come out of code. Manually correcting the tracking of the provided game — fixing
+ball positions, identity switches or anything else by hand — is hand annotation, and rule 1
+applies.
 
 ---
 
@@ -40,18 +44,44 @@ representations come from.
 has the ball is not a submission, no matter how accurate it is.
 
 This applies whether or not any answer key was involved. Hand-labelling by eye, hand-correcting an
-algorithm's output frame by frame, and hand-labelling against a leaked ground truth are all the
-same thing as far as this rule is concerned: the file did not come from a system, so there is no
-system to evaluate and nothing that would work on the next match.
+algorithm's output — frame by frame, segment by segment or at transitions only — and hand-labelling
+against a leaked ground truth are all the same thing as far as this rule is concerned: the file did
+not come from a system, so there is no system to evaluate and nothing that would work on the next
+match.
 
-Small amounts of hand-labelled data used to *train or validate* a model are fine and normal. The
-distinction is whether the submitted labels come out of a model or out of a person.
+#### Training and validation data
 
-### 2. Use the private ground truth
+The line is drawn by **which game** the labels are on, not by how many there are.
 
-You may not use the full-match ground truth, or anything derived from it, beyond the 5 minutes
-published in this repository. That includes any other source of corrected possession data for this
-fixture.
+**No hand labels on the provided game, in any amount and for any purpose** — not for the
+submission, not to train a model and not to validate one. The provided game is the test set: a
+model trained on human labels from the game it is then asked to label is memorising, not
+generalising, and no threshold on "how much" would make that a fair comparison between teams.
+
+**Hand-labelled data from other games is fine, in any amount.** Label as much as you like. Like
+everything else in your pipeline, the organisers must be able to access it and your technical
+document must explain it: what was labelled, how, by whom and how much.
+
+What remains fine on the provided game:
+
+- **Learning without human labels** — unsupervised or self-supervised methods, or pseudo-labels
+  produced by an algorithm, provided no person decided any of them.
+- **Watching the video and inspecting the data** to understand them, debug your pipeline and
+  design features. Watching is not the problem; turning what you saw into labels, corrections, or
+  rules and constants tied to specific frames of the game is.
+
+### 2. Use the private ground truth, or any human-produced data about the game
+
+You may not use the full-match ground truth, or anything derived from it.
+
+The 5 minutes published in this repository are for **checking that your pipeline is correct** —
+frames aligned, file well-formed, labels meaning what you think. They are not training data and not
+a tuning set. See [EVALUATION.md](EVALUATION.md) for why tuning on them picks the wrong answer even
+without trying.
+
+The same applies to **any human-produced data about the provided game, from any source**: event
+data (Opta, StatsBomb, Wyscout, LaLiga or anyone else), corrected tracking, possession data or
+annotations of any kind. Data of this kind about other games is fine.
 
 ### 3. Submit a file your repository cannot regenerate
 

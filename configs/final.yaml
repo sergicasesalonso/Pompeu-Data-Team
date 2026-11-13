@@ -1,0 +1,15 @@
+# The submission. Whatever this file says is what PompeuDataTeam.csv is generated from:
+#
+#     python scripts/make_submission.py --config configs/final.yaml --out PompeuDataTeam.csv
+#
+# Currently identical to configs/rules_v0.yaml (A3 dead-ball detector + A4 touches/control state
+# machine). It changes only when a candidate beats it on the external bench, with the team's OK.
+name: final
+tracking: atd
+pipeline:
+  method: rules_v0
+  params:
+    deadball: {}   # pompeu.events.deadball.PARAMS overrides
+    touches: {}    # pompeu.events.touches.PARAMS overrides
+    rules: {}      # pompeu.models.rules.PARAMS overrides
+  clean: {}
