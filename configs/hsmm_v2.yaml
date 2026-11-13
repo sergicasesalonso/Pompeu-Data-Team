@@ -1,0 +1,16 @@
+# PROPOSAL (for review by the HSMM's owner): hsmm_v1 + the gap-team expert -- ball-free team
+# evidence inside ball gaps from team shape and motion (pompeu/experts/gap_team.py).
+#   model   configs/gap_team_v1.json, fitted by scripts/train_gap_team.py on external TRAIN, DFL only
+#   weight  0.25, chosen on external VAL only (DFL J03WN1 + metrica:2, seeds 0-4, grid
+#           0/0.25/0.5/1/2/4) by scripts/experiments/gap_team_weight.py. Test never touched.
+name: hsmm_v2
+tracking: atd
+pipeline:
+  method: hsmm_v1
+  params:
+    hsmm:
+      gap_team_weight: 0.25
+      gap_team_model: configs/gap_team_v1.json
+    deadball: {}
+    touches: {}
+  clean: {}
