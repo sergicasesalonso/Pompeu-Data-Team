@@ -63,6 +63,8 @@ PARAMS = {
     "interp_new_only": True,  # only fill gaps that touch a new observation
     "max_passes": 10,         # spike removal iterations
     "pitch_margin_m": 5.0,    # video_candidates_to_metres: keep balls this far outside the lines
+    "round_m": 0.01,          # video_candidates_to_metres: metres grid (B9), 0 = off
+    "round_conf": 3,          # video_candidates_to_metres: conf decimals (B9), None = off
 }
 CANDIDATE_COLUMNS = ("frame", "x_m", "y_m", "conf")
 DEFAULT_SOURCE = "video"
@@ -76,6 +78,9 @@ def video_candidates_to_metres(df_px, H, game=games.GAME, h_frame0=0, params=Non
     H is (N, 3, 3), normalised pitch -> pixels (starter/load_homography.py), row i = video frame
     h_frame0 + i. Rows whose matrix is missing or singular, or whose point lands more than
     `pitch_margin_m` outside the pitch, are dropped.
+
+    Positions are snapped to a `round_m` grid and conf to `round_conf` decimals (B9): a detector
+    run on another GPU differs in the last bits, and the tracker then sees the same discrete input.
     """
     p = {**PARAMS, **(params or {})}
     length, width = games.GAMES[game]["pitch"]
@@ -105,8 +110,14 @@ def video_candidates_to_metres(df_px, H, game=games.GAME, h_frame0=0, params=Non
     keep = (np.isfinite(x_m) & np.isfinite(y_m)
             & (x_m >= -margin) & (x_m <= length + margin)
             & (y_m >= -margin) & (y_m <= width + margin))
-    out = pd.DataFrame({"frame": frame[keep], "x_m": x_m[keep], "y_m": y_m[keep],
-                        "conf": conf[keep], "source": DEFAULT_SOURCE})
+    x_m, y_m, conf = x_m[keep], y_m[keep], conf[keep]
+    if p["round_m"]:
+        x_m = np.round(x_m / p["round_m"]) * p["round_m"]
+        y_m = np.round(y_m / p["round_m"]) * p["round_m"]
+    if p["round_conf"] is not None:
+        conf = np.round(conf, int(p["round_conf"]))
+    out = pd.DataFrame({"frame": frame[keep], "x_m": x_m, "y_m": y_m,
+                        "conf": conf, "source": DEFAULT_SOURCE})
     out.attrs["source"] = DEFAULT_SOURCE
     return out
 

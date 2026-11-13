@@ -155,6 +155,23 @@ def test_pixels_to_metres_round_trip():
     assert len(fuse.video_candidates_to_metres(df, Hm)) == len(df) - 3
 
 
+def test_pixels_to_metres_rounding_absorbs_last_bit_noise():
+    n = 5
+    Hm = np.repeat(np.array([[1500.0, 220.0, 110.0],
+                             [40.0, 880.0, 90.0],
+                             [0.08, 0.25, 1.0]])[None], n, axis=0)
+    rows = np.arange(n)
+    px, py = project_frames(Hm, np.full(n, 31.237), np.full(n, 17.401))
+    df = pd.DataFrame({"frame": rows, "x_px": px, "y_px": py, "conf": 0.123456})
+    noisy = df.assign(x_px=px + 1e-9, y_px=py - 1e-9, conf=0.1234561)   # another GPU's bits
+    a, b = fuse.video_candidates_to_metres(df, Hm), fuse.video_candidates_to_metres(noisy, Hm)
+    assert a.equals(b)
+    assert np.allclose(a["x_m"], 31.24) and np.allclose(a["y_m"], 17.40)
+    assert (a["conf"] == 0.123).all()
+    raw = fuse.video_candidates_to_metres(df, Hm, params={"round_m": 0, "round_conf": None})
+    assert np.allclose(raw["x_m"], 31.237, atol=1e-6)
+
+
 def test_whole_match_size_is_fast():
     n = 199_319
     t = np.arange(n) / 25.0

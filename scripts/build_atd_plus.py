@@ -58,21 +58,36 @@ def tracking_hash(tracking):
     return h.hexdigest()
 
 
-def build(max_fit_m=MAX_FIT_M, max_speed_ms=MAX_SPEED_MS, ref_max_m=REF_MAX_M):
+def detector_candidates(path, frame0):
+    """B2 output (frame, x_px, y_px, conf) at `path` -> candidates in metres (source "video")."""
+    import pandas as pd
+
+    df = pd.read_parquet(path, columns=["frame", "x_px", "y_px", "conf"])
+    H, _, _ = load_homography.load()                  # tactical: row i = video frame i
+    return fuse.video_candidates_to_metres(df, H, h_frame0=0)
+
+
+def build(max_fit_m=MAX_FIT_M, max_speed_ms=MAX_SPEED_MS, ref_max_m=REF_MAX_M,
+          detections=None, use_broadcast=True):
     raw = load_tracking("atd")
     clean, _ = clean_tracking(raw, {})
-    bc = Tracking.from_atd(load_atd(source="broadcast"))
-    _, _, valid = load_homography.load(source="broadcast")
-    # Aligned on the raw tactical players, as scripts/broadcast_coverage.py validated; rows are
-    # the same in the cleaned Tracking.
-    al = broadcast.align(raw, bc, valid)
-    # The reference is the raw tactical ball (observed frames only), the alignment's own rows.
-    ref = raw.ball_xy if ref_max_m > 0 else None
-    cands, cstats = broadcast.ball_candidates(
-        al, bc, max_fit_m=max_fit_m, frame0=clean.frame0,
-        max_speed_ms=max_speed_ms if max_speed_ms > 0 else None,
-        reference_xy=ref, ref_window=REF_WINDOW, ref_max_m=ref_max_m, return_stats=True)
-    plus, report = fuse.augment_ball(clean, [cands])
+    candidates, cstats = [], None
+    if use_broadcast:
+        bc = Tracking.from_atd(load_atd(source="broadcast"))
+        _, _, valid = load_homography.load(source="broadcast")
+        # Aligned on the raw tactical players, as scripts/broadcast_coverage.py validated; rows
+        # are the same in the cleaned Tracking.
+        al = broadcast.align(raw, bc, valid)
+        # The reference is the raw tactical ball (observed frames only), the alignment's own rows.
+        ref = raw.ball_xy if ref_max_m > 0 else None
+        cands, cstats = broadcast.ball_candidates(
+            al, bc, max_fit_m=max_fit_m, frame0=clean.frame0,
+            max_speed_ms=max_speed_ms if max_speed_ms > 0 else None,
+            reference_xy=ref, ref_window=REF_WINDOW, ref_max_m=ref_max_m, return_stats=True)
+        candidates.append(cands)
+    if detections:
+        candidates.append(detector_candidates(detections, clean.frame0))
+    plus, report = fuse.augment_ball(clean, candidates)
     report["candidate_filter"] = cstats
     return plus, report
 
@@ -83,20 +98,25 @@ def main():
     parser.add_argument("--max-fit-m", type=float, default=MAX_FIT_M)
     parser.add_argument("--max-speed-ms", type=float, default=MAX_SPEED_MS, help="0 = off")
     parser.add_argument("--ref-max-m", type=float, default=REF_MAX_M, help="0 = off")
+    parser.add_argument("--detections", help="B2 detections parquet (frame, x_px, y_px, conf), "
+                        "e.g. cache/ball_det/<hash>/detections.parquet; added as source video")
+    parser.add_argument("--no-broadcast", action="store_true", help="detector candidates only")
     args = parser.parse_args()
 
-    plus, r = build(args.max_fit_m, args.max_speed_ms, args.ref_max_m)
+    plus, r = build(args.max_fit_m, args.max_speed_ms, args.ref_max_m,
+                    detections=args.detections, use_broadcast=not args.no_broadcast)
     path = args.out if os.path.isabs(args.out) else os.path.join(paths.ROOT, args.out)
     plus.save(path)
 
     c = r["candidate_filter"]
-    print("filter      {} broadcast balls with fit <= {} m; dropped speed {}, reference {} "
-          "(no evidence {}); kept {}".format(c["candidates"], args.max_fit_m, c["dropped_speed"],
-                                            c["dropped_reference"], c["reference_no_evidence"],
-                                            c["kept"]))
-    if "speed_unknown" in c:
-        print("speed       {} candidates with unknown broadcast ball speed (not speed-filtered)"
-              .format(c["speed_unknown"]))
+    if c is not None:
+        print("filter      {} broadcast balls with fit <= {} m; dropped speed {}, reference {} "
+              "(no evidence {}); kept {}".format(c["candidates"], args.max_fit_m,
+                                                c["dropped_speed"], c["dropped_reference"],
+                                                c["reference_no_evidence"], c["kept"]))
+        if "speed_unknown" in c:
+            print("speed       {} candidates with unknown broadcast ball speed (not "
+                  "speed-filtered)".format(c["speed_unknown"]))
     print("candidates  {} broadcast ball candidates in".format(r["candidates_in"]))
     print("coverage    graded frames with ball: {} -> {} of {} ({:.1%} -> {:.1%})".format(
         r["graded_with_ball_before"], r["graded_with_ball_after"], r["graded_frames"],
