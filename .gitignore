@@ -82,3 +82,16 @@ results/*
 # External data (IDSSE, Metrica) lives in data/ and its derivatives in cache/, both ignored above.
 # artifacts/ holds the trained models (deadball_gbm, seqmodel): trained on open external data only,
 # committed so the submission regenerates without retraining.
+
+# -- Pompeu: model weights and video derivatives (Line B) -------------------------------------
+# Weights trained on the match video, crops, detections and audio extracts are derived from the
+# gated data. They live in cache/; these patterns catch them if a script writes them elsewhere.
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.safetensors
+*.wav
+checkpoints/
+# ... except the committed artifacts, trained on public external data only.
+!artifacts/*.pt
