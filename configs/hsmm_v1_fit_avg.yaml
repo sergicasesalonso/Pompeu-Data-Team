@@ -1,0 +1,23 @@
+# Fitted by scripts/fit_hsmm.py on the val external matches (dfl:J03WN1, metrica:2), seeds [0, 1].
+# Command: python scripts/fit_hsmm.py --deadball '{gbm_weight: 1.0}' --min-possession 2 5 8 --out configs/hsmm_v1_fit_avg.yaml --report results/hsmm_fit_avg.md
+# Objective: mean val spellF1 over min_possession_s [2.0, 5.0, 8.0].
+# val spellF1 0.5109, macroF1 0.8062. Measured on test by the harness.
+#   val spellF1         2s       5s       8s    mean
+#   rules_v0       0.4509  0.4829  0.4203  0.4514
+#   fit            0.4707  0.5596  0.5025  0.5109
+name: hsmm_v1_fit_avg
+tracking: atd
+pipeline:
+  method: hsmm_v1
+  params:
+    hsmm:
+      w_proximity: 0.0
+      a3_segment_llr: 1.0
+      w_dead: 2.0
+      rules_llr: 0.5
+      poss_median_s: 6.0
+      p_poss_to_dead: 0.2
+      w_events: 0.5
+    deadball:
+      gbm_weight: 1.0
+  clean: {}
