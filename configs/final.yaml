@@ -2,14 +2,26 @@
 #
 #     python scripts/make_submission.py --config configs/final.yaml --out PompeuDataTeam.csv
 #
-# Currently identical to configs/rules_v0.yaml (A3 dead-ball detector + A4 touches/control state
-# machine). It changes only when a candidate beats it on the external bench, with the team's OK.
+# Currently identical to configs/hsmm_v2_fit.yaml: the HSMM possession decoder (hsmm_v1 method)
+# with the A3 dead-ball detector and the rules_v0 state machine as experts, plus the gap-team
+# expert. The HSMM weights below were fitted on the external val matches (dfl:J03WN1, metrica:2)
+# with scripts/fit_hsmm.py. The gap-team expert (configs/gap_team_v1.json, a logistic regression)
+# was trained on the external train DFL matches only. Nothing was fitted or chosen with the public
+# 5-minute window or with the external test split. No GPU needed.
 name: final
 tracking: atd
 pipeline:
-  method: rules_v0
+  method: hsmm_v1
   params:
-    deadball: {}   # pompeu.events.deadball.PARAMS overrides
-    touches: {}    # pompeu.events.touches.PARAMS overrides
-    rules: {}      # pompeu.models.rules.PARAMS overrides
+    hsmm:
+      gap_team_weight: 0.25
+      gap_team_model: configs/gap_team_v1.json
+      w_proximity: 0.0
+      w_events: 0.5
+      a3_segment_llr: 0.0
+      w_dead: 2.0
+      rules_llr: 0.5
+      poss_median_s: 12.0
+      p_poss_to_dead: 0.4
+    deadball: {}
   clean: {}

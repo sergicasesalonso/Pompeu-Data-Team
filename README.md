@@ -36,7 +36,9 @@ python evaluation/validate_submission.py PompeuDataTeam.csv
 ```
 
 Expected `sha256` of `PompeuDataTeam.csv`:
-`bfd5ff16006b1e5c50371abeb528195cdc7a60397ec8bed90a8fccc468269f41`
+`b102f17fa6ff61bd8ef1a623ef90214f858a62e9ee4f770a750b25f5305bd321`
+
+The submission needs `configs/gap_team_v1.json` (committed in this repository) and no GPU.
 
 **Tests:** `python -m pytest` (about 3 minutes with the data; tests that need it skip themselves
 without it). Verified from a fresh clone, a new Python 3.11 venv and an empty cache: same sha256.

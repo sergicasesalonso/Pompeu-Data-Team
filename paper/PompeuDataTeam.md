@@ -7,13 +7,13 @@ Implementation detail for every module (all parameters, file by file) is in `ARQ
 ## 1. Summary
 
 - **Task:** label each of the 199,319 frames of the tactical video `H`, `A`, `D` or `X`; ranked on spellF1.
-- **Submission:** `configs/final.yaml`, which is `rules_v0`: A1 tracking cleaning, the A3 dead-ball HMM and the A4 possession state machine. **TODO:** final method name and its external `test` spellF1 and macroF1.
-- **Approach.** Clean the tracking, segment live and dead ball with an HMM, detect touches and controls with their team, and turn them into possessions with a state machine encoding the challenge's control rule. A hidden semi-Markov model (HSMM) using the same cues plus ball-free evidence is the alternative. Methods are compared only on **other** matches with provider labels (DFL/IDSSE, Metrica), degraded to look like our tracking; conventions that touch the public window are in §6.
+- **Submission:** `configs/final.yaml`, which is `hsmm_v2_fit`: A1 tracking cleaning, then a hidden semi-Markov model (HSMM) that decodes possession from the A3 dead-ball detector, the A4 touches and `rules_v0` state machine, Smart Tagging and a ball-free gap-team expert, with weights fitted on the external `val` split. On the external `test` bench it scores **spellF1 0.568 [0.536, 0.602], macroF1 0.834**, against 0.513 [0.485, 0.542] and 0.823 for the rule-based `rules_v0`.
+- **Approach.** Clean the tracking, segment live and dead ball with an HMM, detect touches and controls with their team, and turn them into possessions with a state machine encoding the challenge's control rule. An HSMM combines these cues with ball-free evidence and explicit possession durations, and is what we submit. Methods are compared only on **other** matches with provider labels (DFL/IDSSE, Metrica), degraded to look like our tracking; conventions that touch the public window are in §6.
 - **Ball from the video (Line B)** was explored and is not submitted: the broadcast adds about 3 points of ball coverage, worth about +0.01 spellF1, within the noise (§4).
 
 ## 2. Approach and why
 
-Every module reads and writes one data contract, `Tracking` (`pompeu/io/contract.py`): metres on a 105.3 × 68.0 pitch, one row per video frame, a confidence and source per ball observation. **Line A** labels from the provided assets: A1 cleaning → A2 per-frame features (about 200 columns) → A3 dead-ball detector → A4 touches, controls and the `rules_v0` state machine → A5 `hsmm_v1`. **Line B** adds ball from the video and broadcast into an augmented tracking, "ATD+"; switching to it only changes `tracking:` in the YAML.
+Every module reads and writes one data contract, `Tracking` (`pompeu/io/contract.py`): metres on a 105.3 × 68.0 pitch, one row per video frame, a confidence and source per ball observation. **Line A** labels from the provided assets: A1 cleaning → A2 per-frame features (about 200 columns) → A3 dead-ball detector → A4 touches, controls and the `rules_v0` state machine → A5 HSMM (`hsmm_v1` method; the submitted configuration `hsmm_v2_fit` adds the gap-team expert and fitted weights). **Line B** adds ball from the video and broadcast into an augmented tracking, "ATD+"; switching to it only changes `tracking:` in the YAML.
 
 - **spellF1 scores possessions as objects** (runs matched by temporal IoU). Per-frame voting fragments them: on the external `test` bench `baseline_smooth50_clean` predicts 1,367 possessions against 692 true ones (§7). Hence a segmentation with explicit durations and transitions.
 - **The ball is missing on 41% of graded frames** (CHALLENGE.md), where possession changes are lost. Line A uses ball-free evidence (collective shape, Smart Tagging, dead-ball structure); Line B tried to fill the gaps.
@@ -35,7 +35,7 @@ Every module reads and writes one data contract, `Tracking` (`pompeu/io/contract
 
 - **Smoothed per-frame voting** (`baseline_smooth25/50/125`): 746, 594 and 398 possessions on the full match (counts only) against 250 for `rules_v0`; the 50-frame version scores 0.253 on external `test`.
 - **Voting with dead-ball segmentation** (`deadball_vote50` / `125`): 0.318 [0.291, 0.346] against 0.390 [0.355, 0.426] on an earlier two-match DFL bench (684 and 496 possessions for 474 true); both below the possession models.
-- **`rules_v0` as an HSMM expert** (`hsmm_v1_rules`): on external `val` it scores 0.401 against 0.400 for `rules_v0` at the 5 s convention, i.e. it mostly copies `rules_v0`.
+- **`rules_v0` as a dominant HSMM expert** (`hsmm_v1_rules`): on external `val` it scores 0.401 against 0.400 for `rules_v0` at the 5 s convention, i.e. it mostly copies `rules_v0`. In the submission `rules_v0` stays as one expert, at a weight fitted on `val`.
 - **HSMM with a single `D` state:** team evidence during stoppages (for example a goalkeeper placing the ball) overrode dead ball; replaced by team-owned dead states (§5).
 - **ATD+ with the broadcast ball:** +3.7 coverage points (v1), +2.9 with filters (v2), about +0.01 spellF1 (§4).
 
@@ -45,7 +45,7 @@ Cleaning is done entirely by code (`pompeu/clean/`, A1); nothing is corrected by
 
 - **Ball:** points implying more than 40 m/s to both neighbours are removed, fragments under 3 frames dropped, and gaps under 0.5 s spline-filled (marked `interp`, confidence 0.5). This removes 1,911 of the 2,043 jumps above 40 m/s (`results/cleaning_report.md`). Phantom balls (still, nearest player 7–10 m away) never change possession, because every event needs a player within 2 m.
 - **Players:** frozen slots are flagged (confidence 0.3), not deleted; same-team duplicates are removed; tracklets are stitched with the Hungarian algorithm under a speed bound. Velocities are recomputed from positions (the ATD column is empty on 89% of frames).
-- **No ball:** ball features stay NaN, never imputed; gap length and age are features. Collective features, Smart Tagging and dead-ball structure work without the ball. The state machine keeps the current possession through a gap; the HSMM still receives ball-free evidence there.
+- **No ball:** ball features stay NaN, never imputed; gap length and age are features. Collective features, Smart Tagging and dead-ball structure work without the ball. The state machine keeps the current possession through a gap; the HSMM still receives ball-free evidence there, including the gap-team expert (§5).
 
 **Line B (explored, not submitted).** The ATD ball projects inside the video image on 99.91% of observed frames, so video, tracking and homography are aligned. The broadcast ATD is aligned to the tactical clock from player positions alone (median 0.29 m), replays are discarded, and its ball enters a physically constrained fusion as a candidate: coverage of graded frames goes from 59.2% to 62.9% (ATD+ v1) or 62.1% with filters (v2). The trackers disagree by about 0.7 m on the ball, plus a tail of fast, airborne or false balls; it is not a clock offset (lag 0 is best). ATD+ regenerates with the same hash.
 
@@ -80,9 +80,11 @@ Levels are nested, so only differences within this table are comparable. One poi
 
 **HSMM (`hsmm_v1`, `pompeu/models/hsmm.py`).** States `HL`/`AL` (live, team in possession; median 8 s) and `HD`/`AD` (dead, team to restart; median 20 s) with log-normal durations; team-owned dead states make the restart structural (`HD → HL`, same team with probability 0.98). Experts: A3 cues and segmentation, uncontested ball proximity, A4 events, Smart Tagging and the A3 restart team. Exact semi-Markov Viterbi, tested against exhaustive enumeration.
 
-**Weights.** The HSMM expert weights, including `a3_segment_llr`, are set on the external `val` split only (`scripts/fit_hsmm.py`, coordinate descent on spellF1). **TODO:** fitted values and their `test` score, or drop this paragraph if the fit is not used.
+**Gap-team expert (`pompeu/experts/gap_team.py`).** Inside ball gaps the ball-based experts go silent and the duration prior alone carries the last team, so a change of possession inside a gap is never found. This expert gives team log-odds on in-half frames without a ball from the A2 collective features, which need no ball: per-team centroid and centroid velocity, width, depth, defensive and front lines, compactness, counts of recovering and pressing players and mean speed, plus field speed, the share of stopped players, the centroid and line gaps between the teams, and the 3 s centred means of all of them. It is a ridge logistic regression (`scripts/train_gap_team.py`, shipped as `configs/gap_team_v1.json`) trained on the external `train` DFL matches only; its intercept, which only encodes the home/away base rate of those matches, is dropped. Its weight in the HSMM, 0.25, was chosen on `val`. On `val` gap frames it names the right team on 74.9% of them against 57.3% for carrying the last team, and in the gaps where possession changes it names the post-change team in 75% of them, against 0% for carrying the last team (`scripts/experiments/gap_team.py`).
 
-**Final label policy.** No `X` on graded frames (`full_x_on_graded` = 0 in `results/leaderboard.csv`). **TODO:** describe the final policy if it differs from `rules_v0`.
+**Weights.** The HSMM weights are fitted on the external `val` split only (`scripts/fit_hsmm.py`, coordinate descent on spellF1, seeds 0 and 1; `val` spellF1 0.560, macroF1 0.803): event expert `w_events` = 0.5, dead-ball expert `w_dead` = 2.0, `rules_v0` expert `rules_llr` = 0.5, A3 segmentation `a3_segment_llr` = 0, ball proximity `w_proximity` = 0, gap-team weight 0.25, median live possession `poss_median_s` = 12 s, and probability `p_poss_to_dead` = 0.4 that a live possession ends in a dead ball. The fit set the proximity and segmentation weights to 0, i.e. found those experts redundant with the others. The fitted configuration was then run on `test` once (§7).
+
+**Final label policy.** The label of each frame is its HSMM Viterbi state: `HL`/`AL` give `H`/`A`, both dead states give `D`. No `X` on graded frames (`full_x_on_graded` = 0 in `results/leaderboard.csv`).
 
 ## 6. Training and validation data
 
@@ -92,6 +94,7 @@ Levels are nested, so only differences within this table are comparable. One poi
 |---|---|---|---|---|
 | DFL / IDSSE open data [1, 2] | figshare, doi:10.6084/m9.figshare.28196177 (mirror `pysport/idsse-data`). **CC BY 4.0**; owner Deutsche Fußball Liga | Provider: per-frame `BallStatus` and `BallPossession` (TRACAB, 25 fps), mapped by `align_labels` | 7 full matches, 2022/23 (2 Bundesliga, 5 2. Bundesliga) | `train` / `val` / `test` |
 | Metrica Sports sample data [3] | github.com/metrica-sports/sample-data. **No licence file**; the repository asks users to acknowledge the source | Provider events, collected manually; per-frame labels derived by code (team of the last control event; `D` from stoppage to restart) | 3 anonymised full matches, 25 fps | `train` / `val` / `test` |
+| Gap-team expert training set | The DFL `train` matches above (CC BY 4.0) | Provider `BallPossession` (same 5 s mapping) on in-half frames without ball after degradation | 4 DFL `train` matches | Gap-team logistic regression (§5); its weight chosen on `val` |
 | Ball pseudo-labels (B1) | Our code (`pompeu/vision/pseudolabels.py`) on the provided match | No person: observed ATD ball positions projected through the homography, filtered | 88,937 frames, kept in `cache/`, never published | **Not used by the submitted file** (ball detector, explored) |
 
 **Splits** are by whole match and fixed (`pompeu/external/__init__.py`): `test` = DFL J03WMX, J03WPY and Metrica 3, never trained or tuned on; `val` = DFL J03WN1 (Metrica 2 could not be downloaded, so every `val` figure here is from J03WN1 alone); `train` = DFL J03WOH, J03WQQ, J03WOY, J03WR9 and Metrica 1. Metrica 3 is the test match because games 1 and 2 have the ball glued to the carrier (median distance to nearest player 0.28 m, against 1.4 m on DFL and 1.9 m on our ATD).
@@ -104,7 +107,7 @@ Levels are nested, so only differences within this table are comparable. One poi
 | `hsmm_v1` | 0.266 | 0.344 | 0.386 | 0.354 |
 | `hsmm_v1_rules` | 0.298 | 0.380 | 0.401 | 0.352 |
 
-Across 2–8 s `rules_v0` is first or within 0.003 of first, so the submitted configuration is chosen to hold across that range, not at 5 s alone.
+Across 2–8 s `rules_v0` is first or within 0.003 of first among these three. **TODO:** the same sweep for the submitted `hsmm_v2_fit`.
 
 **Degradation** (`pompeu/external/degrade.py`, seeded). External tracking is made to look like our ATD: the ball is erased in runs drawn from the ATD's gap lengths until 41% of in-half frames have no ball, runs being `dead_weight` = 5.0 times likelier on dead frames; 0.12% of ball frames are displaced 10–40 m; players get identity swaps, freezes, gaps, dropouts, ghosts and slot re-packing. The value 5.0 was first read off the public window, which may not be used for tuning, so we checked it without any label: with our own A3 segmentation of the full match (`scripts/ball_missing_by_state.py`) the ball is absent on 74.7% of dead frames and 12.0% of live ones (ratio 6.2). `dead_weight` is not that ratio (it weights where a gap starts, not how long it lasts; in the match gaps start only 1.17 times more often on dead frames but last much longer), but the measurement confirms that gaps concentrate in stoppages to the degree the degradation assumes, so we keep 5.0 rather than retune a bench that every reported number depends on. Smart Tagging is not simulated, so tagging cues are silent on external matches.
 
@@ -116,12 +119,15 @@ External bench, `test` split (DFL J03WMX, J03WPY, Metrica 3), 2 degradation seed
 
 | Method (config) | spellF1 [5–95%] | macroF1 | Possessions | Full match |
 |---|---|---|---|---|
-| `baseline_smooth50_clean` | 0.253 [0.237, 0.270] | 0.626 | 1367 | 594 |
-| `deadball_vote125` | 0.412 [0.386, 0.439] | 0.802 | 800.5 | 284 |
-| `rules_v0` (submitted) | **TODO** | **TODO** | **TODO** | 250 |
-| `hsmm_v1` | **TODO** | **TODO** | **TODO** | 238 |
+| `baseline_smooth50_clean` (run from an uncommitted tree) | 0.253 [0.237, 0.270] | 0.626 | 1367 | 594 |
+| `deadball_vote125` (run from an uncommitted tree) | 0.412 [0.386, 0.439] | 0.802 | 800.5 | 284 |
+| `rules_v0` | 0.513 [0.485, 0.542] | 0.823 | 633 | 250 |
+| `hsmm_v1` | 0.496 [0.467, 0.526] | 0.816 | 563.5 | 238 |
+| `hsmm_v1_rules` | 0.526 [0.496, 0.557] | 0.822 | 586.5 | 244 |
+| `hsmm_v2` (gap-team expert, default weights) | 0.533 [0.505, 0.564] | 0.836 | 604 | 248 |
+| **`hsmm_v2_fit` (submitted)** | **0.568 [0.536, 0.602]** | **0.834** | 513.5 | 203 |
 
-A change replaces `rules_v0` only if it improves spellF1 on this bench with non-overlapping intervals (or ties and improves macroF1); overlapping differences are not treated as real.
+A change replaces `rules_v0` only if it improves spellF1 on this bench with non-overlapping intervals (or ties and improves macroF1); overlapping differences are not treated as real. The interval of `hsmm_v2_fit`, [0.536, 0.602], does not overlap that of `rules_v0`, [0.485, 0.542]. Every weight was fitted on `val`; `test` was used once per configuration and nothing was changed after seeing it. On the full match `hsmm_v2_fit` predicts 203 possessions against 250 for `rules_v0`, i.e. longer possessions, consistent with the fitted 12 s median.
 
 ## 8. Limitations
 
@@ -141,7 +147,7 @@ python scripts/make_submission.py --config configs/final.yaml --out PompeuDataTe
 python evaluation/validate_submission.py PompeuDataTeam.csv
 ```
 
-`make_submission.py` prints the sha256, verified from a fresh clone with an empty cache: `bfd5ff16006b1e5c50371abeb528195cdc7a60397ec8bed90a8fccc468269f41` (**TODO:** update if the final configuration changes). The submission needs no GPU.
+`make_submission.py` prints the sha256, `b102f17fa6ff61bd8ef1a623ef90214f858a62e9ee4f770a750b25f5305bd321`, reproduced byte-identically on two machines. The submission needs `configs/gap_team_v1.json` (in the repository) and no GPU.
 
 To rebuild the external bench:
 
