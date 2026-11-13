@@ -217,6 +217,113 @@ def build_model(n_in, config=CONFIG):
     return TCN()
 
 
+# -- training ------------------------------------------------------------------------------------
+
+TRAIN = {"steps": 2500, "batch": 16, "window": 1024, "lr": 1e-3, "weight_decay": 0.05,
+         "eval_every": 100, "seed": 0, "channels": 96, "dropout": 0.3, "input_dropout": 0.2}
+
+
+def state_hash(model):
+    import io
+    import hashlib
+    import torch
+    buffer = io.BytesIO()
+    torch.save({k: v.detach().cpu() for k, v in model.state_dict().items()}, buffer)
+    return hashlib.sha256(buffer.getvalue()).hexdigest()[:16]
+
+
+def train(train_paths, val_paths, n_norm, settings=None, load=None, device=None, log=print):
+    """(model on cpu, norm, info) trained on cached items. Deterministic for a given device.
+
+    train_paths: item files; the normalisation comes from the first n_norm of them (the train
+    split's own items -- extra matches only add examples). val_paths: early-stopping items (the
+    checkpoint with the lowest cross-entropy on them is kept). load: item loader (ablations).
+    """
+    import time
+    s = dict(TRAIN, **(settings or {}))
+    set_determinism(s["seed"])
+    import torch
+    device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
+    load = load or load_item
+    started = time.time()
+    norm = fit_normalisation([load(p) for p in train_paths[:n_norm]])
+    Z, Y = [], []
+    for p in train_paths:
+        it = load(p)
+        Z.append(normalise(it["X"], it["names"], norm).astype(np.float16))
+        Y.append(it["y"].astype(np.int64))
+    Zv, Yv = [], []
+    for p in val_paths:
+        it = load(p)
+        Zv.append(normalise(it["X"], it["names"], norm))
+        Yv.append(it["y"].astype(np.int64))
+    n_in = Z[0].shape[1]
+    log("train items {}, val items {}, inputs {}, device {}".format(len(Z), len(Zv), n_in,
+                                                                  device.type))
+    config = dict(CONFIG, channels=s["channels"], dropout=s["dropout"],
+                  input_dropout=s["input_dropout"])
+    model = build_model(n_in, config).to(device)
+    opt = torch.optim.AdamW(model.parameters(), lr=s["lr"], weight_decay=s["weight_decay"])
+    sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=s["lr"], total_steps=s["steps"],
+                                                pct_start=0.1)
+    loss_fn = torch.nn.CrossEntropyLoss(ignore_index=X_CODE)
+    rng = np.random.default_rng(s["seed"])
+    lengths = np.array([len(z) for z in Z], dtype=np.float64)
+    probs = lengths / lengths.sum()
+    L = s["window"]
+
+    def evaluate():
+        model.eval()
+        total, count, correct, graded = 0.0, 0, 0, 0
+        with torch.no_grad():
+            for z, y in zip(Zv, Yv):
+                out = model(torch.as_tensor(z[None], device=device))[0]       # (heads, T, 3)
+                yt = torch.as_tensor(y, device=device)
+                for h in range(out.shape[0]):
+                    keep = yt[h] != X_CODE
+                    total += float(torch.nn.functional.cross_entropy(
+                        out[h][keep], yt[h][keep], reduction="sum"))
+                    count += int(keep.sum())
+                keep = yt[1] != X_CODE
+                correct += int((out[1].argmax(-1)[keep] == yt[1][keep]).sum())
+                graded += int(keep.sum())
+        model.train()
+        return total / count, correct / graded
+
+    best = (float("inf"), None, -1)
+    model.train()
+    running = []
+    for step in range(1, s["steps"] + 1):
+        picks = rng.choice(len(Z), size=s["batch"], p=probs)
+        xb, yb = [], []
+        for i in picks:
+            start = int(rng.integers(0, max(1, len(Z[i]) - L)))
+            xb.append(Z[i][start:start + L].astype(np.float32))
+            yb.append(Y[i][:, start:start + L])
+        xb = torch.as_tensor(np.stack(xb), device=device)
+        yb = torch.as_tensor(np.stack(yb), device=device)                     # (B, heads, L)
+        out = model(xb)                                                       # (B, heads, L, 3)
+        loss = loss_fn(out.reshape(-1, 3), yb.reshape(-1))
+        opt.zero_grad(set_to_none=True)
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        opt.step()
+        sched.step()
+        running.append(float(loss))
+        if step % s["eval_every"] == 0 or step == s["steps"]:
+            vloss, vacc = evaluate()
+            if vloss < best[0]:
+                best = (vloss, {k: v.detach().clone() for k, v in model.state_dict().items()}, step)
+            log("step {} train_ce {:.4f} val_ce {:.4f} val_acc5 {:.4f} ({:.0f} s)".format(
+                step, np.mean(running), vloss, vacc, time.time() - started))
+            running = []
+    model.load_state_dict(best[1])
+    model = model.cpu()
+    info = {"best_step": best[2], "best_val_ce": best[0], "train_items": len(Z),
+            "val_items": len(Zv), "weights_sha": state_hash(model)}
+    return model, norm, info
+
+
 def save(model, norm, path, extra=None):
     import torch
     os.makedirs(os.path.dirname(path), exist_ok=True)
