@@ -63,7 +63,8 @@ different and far more ambiguous problem, and when the ball is dead the answer i
 **What is deliberately out of scope.** This is not a multi-object tracking challenge and not
 game-state reconstruction. Tracking, tagging and homographies are provided so that no team has to
 rebuild detection, re-identification and camera calibration before reaching the actual question.
-Teams that want to improve or replace them may do so; it is a starting point, not a constraint.
+Teams that want to improve or replace them with their own algorithms may do so; it is a starting
+point, not a constraint.
 
 # Data and resources
 
@@ -183,7 +184,8 @@ only in a smoothing window:
 `macroF1` moves by 0.04 across the sweep and prefers one variant; `spellF1` moves by a factor of
 five and prefers another. **`baseline_smooth50`, at spellF1 0.2433, is the published floor.**
 
-Teams receive the ground truth for the first **5 minutes** of play to verify their pipeline. The
+Teams receive the ground truth for the first **5 minutes** of play to verify their pipeline — not
+to train or tune on. The
 ranking is computed against the full match, which stays private until the competition closes. No
 statistic of that ground truth — its possession count, mean duration or possession share — is
 published, since those are precisely the quantities a submission could be tuned against rather
@@ -223,15 +225,17 @@ matter only insofar as they produce a better number.
 The full rules are in [RULES.md](RULES.md). In summary:
 
 **Permitted — any method**, provided (1) the organisers can access and inspect it, and (2) the
-technical document explains it. Any language, framework, model or external data. Improving or
-replacing the provided tracking with your own is explicitly welcome.
+technical document explains it. Any language, framework, model or external data about other
+games. Improving or replacing the provided tracking with your own algorithms is explicitly welcome.
 
 **Not permitted:**
 
 - **Annotating the data by hand.** The labels must be produced by an algorithm, whether or not any
-  answer key was involved. Hand-labelled data used to train or validate a model is fine; a
-  hand-labelled submission is not.
-- **Using the private ground truth**, or anything derived from it, beyond the published 5 minutes.
+  answer key was involved. Hand-labelled data from **other matches** used to train or validate a
+  model is fine, in any amount; hand labels on the competition match itself are not.
+- **Using the private ground truth**, or anything derived from it, or any human-produced data about
+  the game from any source (event data, corrected tracking, annotations). The published 5 minutes
+  are for checking the pipeline, not for training or tuning.
 - **Submitting a file the team's repository cannot regenerate.**
 
 **Each team must be composed of 3 to 5 members (Teams with less than 3 members will not be eligible for the

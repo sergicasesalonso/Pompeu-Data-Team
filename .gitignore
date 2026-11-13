@@ -80,3 +80,14 @@ results/*
 !results/cleaning_report.md
 !results/features_report.md
 !results/deadball_report.md
+
+# -- Pompeu: model weights and video derivatives (Line B) -------------------------------------
+# Weights trained on the match video, crops, detections and audio extracts are derived from the
+# gated data. They live in cache/; these patterns catch them if a script writes them elsewhere.
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.safetensors
+*.wav
+checkpoints/

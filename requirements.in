@@ -4,7 +4,14 @@
 #     python -m venv .venv && .venv/Scripts/pip install -r requirements.in   (Windows; bin/ elsewhere)
 #     .venv/Scripts/pip freeze > requirements.lock
 #
-# Python 3.11. Later stages add their own lines here (torch for A7).
+# Python 3.11. torch is NOT here: requirements.lock stays torch-free so the submission
+# regenerates on any machine. Two extra locks add torch 2.9.1 on top of requirements.lock
+# (install instructions in each file's header):
+#     requirements-gpu.lock        torch 2.9.1+cu126 -- Line B GPU runs (B2 training, A7) on the 3060
+#                                  tower; needs NVIDIA driver >= 560.
+#     requirements-cpu-torch.lock  torch 2.9.1+cpu   -- the canonical CPU path for rule 10 (B2
+#                                  inference, A7 if it enters the submission).
+# Regenerate both with pip freeze in clean 3.11 venvs whenever requirements.lock changes.
 kloppy==3.18.0
 numba==0.66.0
 numpy==2.0.2
