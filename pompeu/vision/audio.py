@@ -104,7 +104,7 @@ def _audio_timing(video_path):
     if executable is None:
         raise RuntimeError("ffprobe is required for local B7 timing")
     probe = subprocess.run([executable, "-v", "error", "-show_entries",
-                            "stream=codec_type,start_time,r_frame_rate,avg_frame_rate",
+                            "stream=codec_type,start_time,r_frame_rate,avg_frame_rate,nb_frames,duration",
                             "-of", "json", str(video_path)], stdout=subprocess.PIPE,
                            stderr=subprocess.DEVNULL, text=True,
                            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
@@ -123,9 +123,22 @@ def _audio_timing(video_path):
         audio_start, video_start = float(audio["start_time"]), float(video["start_time"])
     except (KeyError, TypeError, ValueError, ZeroDivisionError):
         raise ValueError("audio/video timestamps and constant frame rate are required") from None
-    if fps <= 0 or fps != average or not np.isfinite([audio_start, video_start]).all():
+    if (fps <= 0 or average <= 0 or not np.isclose(float(fps), float(average), rtol=1e-4, atol=1e-6)
+            or not np.isfinite([audio_start, video_start]).all()):
         raise ValueError("unsupported frame rate or missing audio/video timestamps")
-    return float(fps), audio_start, video_start
+    try:
+        count = int(video.get("nb_frames", "N/A"))
+    except (ValueError, TypeError):
+        try:
+            duration = float(video["duration"])
+            if not np.isfinite(duration) or duration <= 0:
+                raise ValueError("invalid duration")
+            count = int(np.floor(duration*float(fps)+0.5))
+        except (KeyError, TypeError, ValueError, OverflowError):
+            raise ValueError("video frame count or duration is required") from None
+    if count < 1:
+        raise ValueError("positive video frame count required")
+    return float(fps), audio_start, video_start, count
 
 
 def detect_whistles(video_path, *, sample_rate=16000, block_samples=16384, **settings):
@@ -140,7 +153,7 @@ def detect_whistles(video_path, *, sample_rate=16000, block_samples=16384, **set
     timing = _audio_timing(video_path)
     if timing is None:
         return _table()
-    fps, audio_start, video_start = timing
+    fps, audio_start, video_start, n_frames = timing
     first_pts = int(np.floor(audio_start*sample_rate+0.5))
     detector = _WhistleStream(sample_rate, fps=fps, audio_offset_s=first_pts/sample_rate-video_start, **settings)
     executable = shutil.which("ffmpeg")
@@ -164,7 +177,8 @@ def detect_whistles(video_path, *, sample_rate=16000, block_samples=16384, **set
             remainder = raw[complete:]
         if remainder or process.wait() != 0:
             raise RuntimeError("audio decoding failed or returned incomplete PCM")
-        return detector.finish()
+        events = detector.finish()
+        return events.loc[events.frame.between(0, n_frames-1)].reset_index(drop=True)
     finally:
         process.stdout.close()
         if process.poll() is None:

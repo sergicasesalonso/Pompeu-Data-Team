@@ -41,7 +41,7 @@ def test_event_grouping_short_tones_and_overlap():
 
 def probe(audio_start="10.24"):
     streams = [{"codec_type": "video", "start_time": "10.0", "r_frame_rate": "25/1",
-                "avg_frame_rate": "25/1"}]
+                "avg_frame_rate": "25/1", "nb_frames": "30"}]
     if audio_start is not None:
         streams.append({"codec_type": "audio", "start_time": audio_start})
     return subprocess.CompletedProcess([], 0, stdout=json.dumps({"streams": streams}))
@@ -88,4 +88,24 @@ def test_missing_audio_or_timestamps_and_decode_failure():
     with patch("shutil.which", side_effect=lambda name: name), patch("subprocess.run", return_value=probe()), \
             patch("subprocess.Popen", return_value=Decoder(b"x")):
         with pytest.raises(RuntimeError, match="PCM"):
+            detect_whistles("synthetic.mp4")
+
+
+def test_metadata_tolerance_and_video_frame_bounds():
+    metadata = probe()
+    data = json.loads(metadata.stdout)
+    data["streams"][0]["avg_frame_rate"] = "249999/10000"
+    metadata.stdout = json.dumps(data)
+    with patch("shutil.which", side_effect=lambda name: name), patch("subprocess.run", return_value=metadata), \
+            patch("subprocess.Popen", return_value=Decoder(tone().tobytes())):
+        assert len(detect_whistles("synthetic.mp4")) == 1
+    data["streams"][0]["nb_frames"] = "3"
+    metadata.stdout = json.dumps(data)
+    with patch("shutil.which", side_effect=lambda name: name), patch("subprocess.run", return_value=metadata), \
+            patch("subprocess.Popen", return_value=Decoder(tone().tobytes())):
+        assert detect_whistles("synthetic.mp4").empty
+    data["streams"][0]["avg_frame_rate"] = "24/1"
+    metadata.stdout = json.dumps(data)
+    with patch("shutil.which", return_value="ffprobe"), patch("subprocess.run", return_value=metadata):
+        with pytest.raises(ValueError, match="frame rate"):
             detect_whistles("synthetic.mp4")
