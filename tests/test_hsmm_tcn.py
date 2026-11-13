@@ -19,7 +19,7 @@ def _tags(rows):
 
 def test_like_synthetic_keeps_possession_and_known_set_pieces_only():
     from pompeu.external.synthetic_tags import ATTACK_CODES, load_error_model
-    known = load_error_model()["set_piece_types"][0]
+    known = next(iter(load_error_model()["set_piece_types"]))
     tags = _tags([(ATTACK_CODES[0], None), ("SET PIECES", known), ("SET PIECES", "no-such-type"),
                   ("GOAL", None), ("KICK OFF", None)])
     kept = tcn.like_synthetic(tags)
