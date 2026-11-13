@@ -25,8 +25,9 @@ import numpy as np
 from pompeu import paths
 
 # Params
-# 2: trained on examples v2 (the simulator blurs the ball like the ATD).
-VERSION = 2
+# 1: the committed artifact (lightgbm 4.6.0), used by every measured config. A v2 retrained on
+# examples v2 (ATD-like ball blur) was planned but never trained: bump only with its artifact.
+VERSION = 1
 ARTIFACT = os.path.join(paths.ROOT, "artifacts", "deadball_gbm_v{}.txt".format(VERSION))
 PARAMS = {
     "objective": "binary",

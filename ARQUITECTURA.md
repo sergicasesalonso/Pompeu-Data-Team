@@ -295,6 +295,42 @@ En `val` pasa de spellF1 **0,532 a 0,588**. La proximidad cruda acaba con peso 0
 - **MBR** (`pompeu/decode/mbr.py`, `hsmm: {mbr: true}`): extrae 200 segmentaciones de la posterior del HSMM (FFBS exacto, `viterbi.sample`) y, partiendo de Viterbi, hace búsqueda local voraz (desplazar fronteras ±5/±15 frames, absorber posesiones de menos de 3 s) mientras suba el spellF1 **esperado**. El evaluador rápido coincide con `possession_metrics` hasta 12 decimales (`tests/test_mbr.py`). No están implementados los k-best, el medoide ni el desempate por macroF1.
 - **Política final** (`pompeu/decode/policy.py`, `policy: {}` en la config): ninguna `X` en frames puntuados, `X` fuera de las partes y ninguna racha de 1–2 frames.
 
+## Fusión de balón (B3)
+
+`augment_ball(tracking, candidatos) → (Tracking, informe)` en `pompeu/vision/fuse.py`. Añade frames con balón al `Tracking` limpio y devuelve otro `Tracking` con el mismo contrato, así que todos los métodos de la Línea A funcionan sin cambios. Los candidatos son tablas `frame, x_m, y_m, conf, source` (`"video"` para el detector B2 y `"broadcast"` para el ATD de broadcast alineado). `video_candidates_to_metres(df_px, H)` pasa la salida del detector (píxeles, top-k por frame) a metros con la homografía de cada frame.
+
+| Paso | Qué hace (valores por defecto) |
+|---|---|
+| El ATD manda | En un frame donde el ATD ve el balón no se toca nada. Los candidatos de ese frame solo se cuentan: de acuerdo (≤ 1 m) o en conflicto |
+| Filtro físico | El candidato tiene que poder alcanzarse desde el balón ATD anterior y desde el siguiente a 35 m/s + 1 m |
+| Soporte | Se enlazan candidatos (y los balones ATD cercanos) a ≤ 3 frames y dentro de ese alcance. Las componentes conexas son tracklets, y si una cubre < 3 frames distintos se descarta. Así cae un candidato aislado de un solo frame |
+| Elección | En cada frame gana el candidato del tracklet más fuerte (suma de `conf`, cada balón ATD vale 1). Si empatan, decide la `conf` y luego el orden de las fuentes. Es determinista |
+| Coherencia | Sobre la traza combinada se quitan los puntos nuevos que no alcanzan a ninguno de sus dos vecinos y los fragmentos solo nuevos de < 3 frames. Los puntos ATD nunca se quitan |
+| Huecos | Los huecos de ≤ 1,5 s que tocan un punto nuevo se rellenan en línea recta si se pueden cruzar a 35 m/s. Los huecos entre dos balones ATD siguen como los dejó A1 |
+
+- **Códigos:** todo candidato aceptado (detector o broadcast) lleva `ball_source = video` y confianza `conf · 0,8`. Los rellenos llevan `interp` y 0,5. El informe da los recuentos por fuente. Falta decidir si el contrato debe tener un código `broadcast` propio.
+- **Informe:** solo recuentos (frames con balón antes y después, aceptados por fuente, rechazados por motivo, interpolados y cobertura de los frames puntuados). La salida es por frame, así que va a `cache/` y nunca a git.
+- **Rendimiento:** numpy vectorizado. En un partido sintético de 199.319 frames tarda menos de 1 s.
+- **Tests:** `python -m pytest tests/test_fuse.py` (solo sintéticos).
+
+### Balón del broadcast (B8 → B3)
+
+`broadcast.align` pone el ATD de broadcast en el reloj táctico usando solo jugadores, y `broadcast.ball_candidates` convierte su balón en candidatos. Donde los dos ATD ven el balón (70.726 frames puntuados), la distancia mediana es 0,77 m y el 74,8 % queda a ≤ 2 m. Los jugadores alinean a 0,29 m. Hemos descartado que la causa sea la alineación:
+
+- **No hay desfase temporal.** Si se barre un desfase de −12 a +12 frames sobre el balón del broadcast, el mínimo cae en 0. La curva es simétrica (±1 frame: 0,84–0,85 m) y el residuo a lo largo del movimiento tiene una mediana de −0,01 m. Afinar el desfase por tramo apenas mejora en frames de validación (≤ 1 m: 57,4 % → 58,3 %).
+- **No depende del ajuste mientras este sea ≤ 1 m.** Las medianas quedan entre 0,70 y 0,95 m. Por encima de 1 m (el 2 % de los frames) sube a 2,3–3,1 m.
+- **Hay un suelo de ruido.** Cada eje tiene unos 0,45–0,5 m de error, más en profundidad (y) que a lo ancho (x). Con dos trackers independientes, eso da ~0,7 m de mediana. Por eso el umbral `agree_m` = 1 m de B3 marca como conflicto mucho ruido normal.
+- **La cola (> 2 m, el 25 %) va por episodios.** Se concentra en los balones rápidos, probablemente aéreos: a ≥ 25 m/s la mediana es de 6,5 m y el error en y es 2–3 veces el de x, como se espera de la altura pasada por una homografía de suelo. También se concentra en los balones lejos de cualquier jugador, en las dos fuentes. El balón táctico está a > 7 m de cualquier jugador en el 10 % de sus frames, el del broadcast en el 8 %, y los candidatos que solo tiene el broadcast en el 13 %.
+
+Filtros opcionales en `ball_candidates`, desactivados por defecto:
+
+| Filtro | Qué hace |
+|---|---|
+| `max_speed_ms` | Quita el balón del broadcast si su propia velocidad supera este valor |
+| `reference_xy` | En un frame sin balón táctico, quita el candidato si la mediana de su distancia al balón táctico supera `ref_max_m`. La mediana se calcula en el mismo tramo alineado y a ±`ref_window` filas. Los frames con balón táctico no se filtran, así que el recuento de acuerdo y conflicto sigue siendo una comprobación independiente |
+
+El balón táctico es un dato de entrada, no GT. `scripts/build_atd_plus.py` genera `cache/atd_plus_broadcast_v2.npz` con ajuste ≤ 1 m, velocidad ≤ 25 m/s y referencia ≤ 1,5 m a ±125 filas. Con huecos simulados de ~75 frames, el filtro de referencia por sí solo pasa el ≤ 2 m del 74,8 % al 80,7 %. Respecto a v1, los aceptados bajan de 5.805 a 4.356 y la cobertura puntuada pasa del 62,9 % al 62,1 %. v1 se puede regenerar con `--max-fit-m 2 --max-speed-ms 0 --ref-max-m 0`. Falta decidir cuál de las dos se usa validándolas en `public_stress`.
+
 ## Bancos de validación
 
 | Banco | Para qué |
