@@ -1,0 +1,16 @@
+# hsmm_v2 with the augmented gap-team model: same HSMM weights and gap_team_weight 0.25 as
+# hsmm_v2 (not refitted here); only gap_team_model changes.
+#   model   configs/gap_team_v2.json, fitted by scripts/train_gap_team_aug.py on external TRAIN,
+#           DFL only, augmented with y-mirroring + home/away swapping, degradation seeds 0-9 and
+#           labels at min_possession_s 2/5/8. Val/test never used for fitting.
+name: hsmm_v2_aug
+tracking: atd
+pipeline:
+  method: hsmm_v1
+  params:
+    hsmm:
+      gap_team_weight: 0.25
+      gap_team_model: configs/gap_team_v2.json
+    deadball: {}
+    touches: {}
+  clean: {}
