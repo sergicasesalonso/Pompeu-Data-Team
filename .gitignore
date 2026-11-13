@@ -91,3 +91,6 @@ results/*
 *.safetensors
 *.wav
 checkpoints/
+
+# internal team notes (kept in the private channel)
+equip/
