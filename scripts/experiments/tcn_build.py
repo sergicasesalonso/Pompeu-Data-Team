@@ -17,7 +17,7 @@ from multiprocessing import get_context
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
-from pompeu import external  # noqa: E402
+from pompeu import external, paths  # noqa: E402
 from pompeu.experimental import tcn  # noqa: E402
 
 _RUN_LENGTHS = None
@@ -49,7 +49,11 @@ def main():
     parser.add_argument("--no-aug", action="store_true")
     parser.add_argument("--tag", default="v1")
     args = parser.parse_args()
-    names = external.resolve(args.split)
+    raw = external.EXTRA_TRAIN if args.split == "extra_train" else external.SPLITS[args.split]
+    names = [external.canonical(m) for m in raw]
+    # Present = raw files found, or the parsed match already in cache/external/.
+    names = [m for m in names if external.available(m) or os.path.isfile(os.path.join(
+        paths.CACHE_DIR, "external", m.replace(":", "_") + "_v1.npz"))]
     jobs = []
     for index, name in enumerate(names):
         for seed in args.seeds:

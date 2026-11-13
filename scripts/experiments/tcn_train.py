@@ -53,6 +53,9 @@ def main():
     parser.add_argument("--weight-decay", type=float, default=1e-2)
     parser.add_argument("--eval-every", type=int, default=250)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--channels", type=int, default=tcn.CONFIG["channels"])
+    parser.add_argument("--dropout", type=float, default=tcn.CONFIG["dropout"])
+    parser.add_argument("--input-dropout", type=float, default=tcn.CONFIG["input_dropout"])
     args = parser.parse_args()
     tcn.set_determinism(args.seed)
     import torch
@@ -74,7 +77,9 @@ def main():
     print("train items {}, val items {}, inputs {}, device {}".format(len(Z), len(Zv), n_in,
                                                                     device.type), flush=True)
 
-    model = tcn.build_model(n_in).to(device)
+    config = dict(tcn.CONFIG, channels=args.channels, dropout=args.dropout,
+                  input_dropout=args.input_dropout)
+    model = tcn.build_model(n_in, config).to(device)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=args.lr, total_steps=args.steps,
                                                 pct_start=0.1)
