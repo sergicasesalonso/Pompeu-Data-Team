@@ -25,7 +25,8 @@ import numpy as np
 from pompeu import paths
 
 # Params
-VERSION = 1
+# 2: trained on examples v2 (the simulator blurs the ball like the ATD).
+VERSION = 2
 ARTIFACT = os.path.join(paths.ROOT, "artifacts", "deadball_gbm_v{}.txt".format(VERSION))
 PARAMS = {
     "objective": "binary",
