@@ -1,0 +1,18 @@
+# Fitted by scripts/experiments/fit_hsmm_avg.py from hsmm_v2 on the val external
+# matches (dfl:J03WN1, metrica:2), seeds [0, 1]; objective = mean val spellF1 over min_possession_s
+# 2/5/8 s. val mean 0.5031 (2s 0.5084  5s 0.5358  8s 0.4652). Test never used.
+name: hsmm_v2_fitavg
+tracking: atd
+pipeline:
+  method: hsmm_v1
+  params:
+    hsmm:
+      gap_team_weight: 0.5
+      gap_team_model: configs/gap_team_v1.json
+      w_proximity: 0.0
+      a3_segment_llr: 6.0
+      w_dead: 2.0
+      rules_llr: 0.5
+      p_poss_to_dead: 0.4
+    deadball: {}
+  clean: {}
