@@ -138,7 +138,8 @@ def test_throw_in_scene_labels_and_posteriors():
     assert post[500, 2] > 0.99 and post[20, 0] > 0.9
     # The throw lands among home players (the scene's geometry): home has it -- surely while
     # they are next to the ball, less surely once it rests with nobody near (no new evidence).
-    assert labels[-1] == "H" and post[1050, 0] > 0.95 and post[-1, 0] > 0.5
+    # (0.93 on the scene alone; the old 0.95 only held with the real match's tagging leaking in.)
+    assert labels[-1] == "H" and post[1050, 0] > 0.9 and post[-1, 0] > 0.5
 
 
 def test_outside_the_halves_is_dead():

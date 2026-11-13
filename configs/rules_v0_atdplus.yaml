@@ -1,0 +1,11 @@
+# A4 rules_v0 on ATD+ (B3 fusion of the B8-aligned broadcast ball), built by
+# scripts/build_atd_plus.py. Identical to configs/rules_v0.yaml except `tracking:` and no `clean:`
+# key: the .npz is already A1-cleaned, and re-cleaning the fused ball is not a no-op.
+name: rules_v0_atdplus
+tracking: cache/atd_plus_broadcast_v1.npz
+pipeline:
+  method: rules_v0
+  params:
+    deadball: {}   # pompeu.events.deadball.PARAMS overrides
+    touches: {}    # pompeu.events.touches.PARAMS overrides
+    rules: {}      # pompeu.models.rules.PARAMS overrides

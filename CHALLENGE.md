@@ -118,17 +118,20 @@ frames**. The Smart Tagging is inferred too. Handling that noise is part of the 
 obstacle to it — see [DATA.md](DATA.md).
 
 Improving the provided data, or replacing it with your own detection and tracking, is entirely
-legitimate. It is a starting point, not a constraint.
+legitimate as long as it is done by algorithms, not by hand. It is a starting point, not a
+constraint.
 
 ---
 
 ## What you may use
 
 **Any method**, provided the organisers can access and inspect it and your technical document
-explains it. Any language, framework, model or external data; LLMs commercial or open.
+explains it. Any language, framework, model or external data about other games; LLMs commercial or
+open.
 
 **What you may not do is annotate the data by hand** — the labels must come out of an algorithm.
-Full rules in **[RULES.md](RULES.md)**.
+No hand labels on the provided game may be used to train or validate a model either; hand labels on
+other games are fine. Full rules in **[RULES.md](RULES.md)**.
 
 ---
 
