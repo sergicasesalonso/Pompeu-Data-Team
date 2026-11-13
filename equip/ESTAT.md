@@ -13,7 +13,7 @@
 | B1 pseudo-etiquetes | ✅ 88.937 (70.449 train / 18.488 val), a `cache/` |
 | B8 broadcast | ✅ alineació fiable (jugadors 0,29 m). Pilota: soroll entre trackers ~0,7 m + cua de pilotes ràpides/aèries i falses (no és un desfasament: lag 0 és el millor) |
 | B3 fusió | ✅ `augment_ball()`. ATD+ v1 (cobertura 59,2 → 62,9 %, hash 9faa52d2…) i v2 amb filtres (59,2 → 62,1 %, hash dc03433e…). Configs experimentals `*_atdplus.yaml` (llegeixen v1) |
-| B9 determinisme | proposta a `equip/B9-PROPOSTA.md`; ordre estable a `broadcast.align` i hash amb NaN/-0.0 canònics fets (12-11, tests sintètics). Per verificar a la torre: ATD+ ×2 amb el mateix hash, i que els hashes de v1/v2 no canvien |
+| B9 determinisme | ✅ verificat al portàtil (13-11): ATD+ v1 i v2 regenerats 2 vegades amb el mateix hash. Hashes canònics nous (des del fix de -0.0): **v1 `8aeed8e6…`**, **v2 `943a2b5d…`**. Les dades són idèntiques a les d'ahir (0 elements diferents; amb el hash antic surten 9faa52d2… / dc03433e…): el canvi ve de 2 valors -0,0 a `players_xy` de l'ATD. Candidats del detector arrodonits a 0,01 m / 3 decimals (13c3523) |
 
 ## Document
 
