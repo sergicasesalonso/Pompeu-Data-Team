@@ -1,0 +1,19 @@
+# Fitted by scripts/fit_hsmm.py on the val external matches (dfl:J03WN1, metrica:2), seeds [0, 1].
+# val spellF1 0.5598, macroF1 0.8025. Measured on test by the harness.
+name: hsmm_v2_fit
+tracking: atd
+pipeline:
+  method: hsmm_v1
+  params:
+    hsmm:
+      gap_team_weight: 0.25
+      gap_team_model: configs/gap_team_v1.json
+      w_proximity: 0.0
+      w_events: 0.5
+      a3_segment_llr: 0.0
+      w_dead: 2.0
+      rules_llr: 0.5
+      poss_median_s: 12.0
+      p_poss_to_dead: 0.4
+    deadball: {}
+  clean: {}

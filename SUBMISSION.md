@@ -65,6 +65,8 @@ Short — a few pages is plenty. PDF or Markdown. It should cover:
 
 - **the approach** — what you built, and why that rather than something else
 - **which assets you used and how** — saying which ones you tried and *dropped* is just as useful
+- **training data** — every labelled dataset you used, its source, who labelled it and how much.
+  None of it may come from the provided game
 - **the possession rules you implemented** — where you drew the line on loose balls, challenges,
   restarts
 - **limitations** — where it fails, and what you would fix with more time
@@ -105,6 +107,9 @@ Four practical things, because a form is less forgiving than a folder:
 The full rules are in **[RULES.md](RULES.md)**. The two that define the task rather than the
 competition:
 
-- **The labels must be produced by an algorithm.** Annotating the data by hand is not a submission.
-- **You may not use the private ground truth** or anything derived from it, beyond the 5 minutes
-  published here.
+- **The labels must be produced by an algorithm.** Annotating the data by hand is not a submission,
+  and no hand labels on the provided game may be used to train or validate a model. Hand labels on
+  other games are fine.
+- **You may not use the private ground truth** or anything derived from it, nor any human-produced
+  data about the game from any source. The 5 minutes published here are for checking your
+  pipeline, not for training or tuning.

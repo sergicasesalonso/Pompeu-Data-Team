@@ -115,6 +115,10 @@ PARAMS = {
     "rules_llr": 0.0,            # per look, for rules_v0's team on its live frames (A4's output)
     "w_learned_team": 0.0,       # A7's sequence model, when prepare()["learned"] carries it
     "w_learned_dead": 0.0,
+    # hsmm_v2 proposal: ball-free team evidence inside ball gaps (pompeu.experts.gap_team), per
+    # look like the other per-frame cues. 0 = off, and every existing config is unchanged.
+    "gap_team_weight": 0.0,
+    "gap_team_model": None,      # path to its JSON (scripts/train_gap_team.py)
     "posteriors": False,
 }
 
@@ -216,7 +220,7 @@ def emissions(dead_llr, team, p):
     """(N, 4) per-frame log emissions: team and liveness evidence, factorised."""
     L_team = (p["w_proximity"] * team["proximity"] + p["w_events"] * team["events"]
               + p["w_tagging"] * team["tagging"] + p["w_restart"] * team["restart"]
-              + team.get("rules", 0.0) + team.get("learned", 0.0))
+              + team.get("rules", 0.0) + team.get("learned", 0.0) + team.get("gap_team", 0.0))
     L_dead = p["w_dead"] * dead_llr
     return 0.5 * (L_team[:, None] * TEAM_SIGN[None] + L_dead[:, None] * DEAD_SIGN[None])
 
@@ -263,6 +267,12 @@ def decode_prepared(prep, hsmm=None):
         team["learned"] = p["w_learned_team"] * learned["team"] * scale
     if "dead" in learned:
         dead_llr = dead_llr + p["w_learned_dead"] * learned["dead"] * scale
+    # hsmm_v2: who has it while the ball is missing, from team shape. Part of L_team, so (like
+    # every team expert) it never moves live versus dead; non-zero only inside ball gaps.
+    if p["gap_team_weight"]:
+        from pompeu.experts import gap_team
+        team["gap_team"] = p["gap_team_weight"] * scale * gap_team.team_evidence(
+            tracking, prep["F"], gap_team.load_model(p["gap_team_model"]))
     emission = emissions(dead_llr, team, p)
     log_dur = log_durations(p, fps)
     T = transition_matrix(p)
