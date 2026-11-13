@@ -170,7 +170,10 @@ def build_model(torch, n_in):
     return Net()
 
 
-def train_model(torch, seqs, variant, seed, iters, device):
+def train_model(torch, seqs, variant, seed, iters, device, monitor=None):
+    """(model, seconds, chosen iteration). With `monitor` (model -> score, higher is better,
+    computed on a held-out TRAIN match), the checkpoint with the best score is returned."""
+    import copy
     torch.manual_seed(seed)
     rng = np.random.default_rng(seed)
     model = build_model(torch, seqs[0]["x"].shape[1]).to(device)
@@ -180,6 +183,7 @@ def train_model(torch, seqs, variant, seed, iters, device):
     prob = lengths / lengths.sum()
     L = WINDOW_STEPS
     started = time.time()
+    best = (-np.inf, iters, None)
     model.train()
     for it in range(iters):
         xs, ys, ws = [], [], []
@@ -206,9 +210,17 @@ def train_model(torch, seqs, variant, seed, iters, device):
         opt.step()
         sched.step()
         if (it + 1) % max(1, iters // 10) == 0:
-            print("    {} it {:>5}/{}: loss {:.4f}  ({:.0f} s)".format(
-                variant, it + 1, iters, float(loss), time.time() - started), flush=True)
-    return model, time.time() - started
+            score = np.nan
+            if monitor is not None:
+                score = monitor(model)
+                model.train()
+                if score > best[0]:
+                    best = (score, it + 1, copy.deepcopy(model.state_dict()))
+            print("    {} it {:>5}/{}: loss {:.4f}  holdout {:.4f}  ({:.0f} s)".format(
+                variant, it + 1, iters, loss.item(), score, time.time() - started), flush=True)
+    if best[2] is not None:
+        model.load_state_dict(best[2])
+    return model, time.time() - started, best[1]
 
 
 def predict(torch, model, seq, device):
@@ -312,6 +324,9 @@ def main():
     parser.add_argument("--check-determinism", action="store_true",
                         help="train the first variant a second time and compare val logits")
     parser.add_argument("--device", default=None)
+    parser.add_argument("--holdout", default=None,
+                        help="a TRAIN match left out of training and used to pick the checkpoint "
+                             "(gap-frame accuracy, as eval_rows); val is never used for it")
     args = parser.parse_args()
     started = time.time()
 
@@ -346,7 +361,23 @@ def main():
     # Sequence inputs: standardised with train in-half statistics.
     Xin = np.concatenate([d["X"][d["half"] > 0] for d in tr]).astype(np.float64)
     _, smean, sstd = gap_team.standardise(Xin[::SUB])
+    held = [d for d, (m, _) in zip(tr, [(m, s) for m in train_names for s in seeds])
+            if m == args.holdout]
+    tr = [d for d, (m, _) in zip(tr, [(m, s) for m in train_names for s in seeds])
+          if m != args.holdout]
     tr_seqs = [s for d in tr for s in sequences(d, smean, sstd)]
+    monitor = None
+    if held:
+        held_seqs = [sequences(d, smean, sstd) for d in held]
+        held_rows = [eval_rows(d) for d in held]
+        held_y = np.concatenate([(d["gt"][r] == A) for d, r in zip(held, held_rows)])
+
+        def monitor(model):
+            out = [upsample(d, sq, [predict(torch, model, s, device) for s in sq])[r]
+                   for d, sq, r in zip(held, held_seqs, held_rows)]
+            return float(np.mean((np.concatenate(out) > 0) == held_y))
+        print("holdout {} ({} degraded copies) picks the checkpoint".format(args.holdout,
+                                                                           len(held)))
     va_seqs = [sequences(d, smean, sstd) for d in va]
     print("train sequences {}, steps {}, live {:.3f}, gap {:.3f}".format(
         len(tr_seqs), sum(len(s["y"]) for s in tr_seqs),
@@ -374,8 +405,10 @@ def main():
     for run in runs:
         variant = run.split("#")[0]
         print("training {}".format(run), flush=True)
-        model, secs = train_model(torch, tr_seqs, variant, args.train_seed, args.iters, device)
+        model, secs, chosen = train_model(torch, tr_seqs, variant, args.train_seed, args.iters,
+                                          device, monitor)
         timings[run] = secs
+        print("  {} checkpoint: iteration {}".format(run, chosen), flush=True)
         if not args.smoke:
             torch.save(model.state_dict(), os.path.join(CACHE, "{}.pt".format(run.replace("#", "_"))))
         full = []
