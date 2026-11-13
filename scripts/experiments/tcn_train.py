@@ -69,6 +69,7 @@ def main():
     Y = [it["y"].astype(np.int64) for it in train]
     Zv = [tcn.normalise(it["X"], it["names"], norm) for it in val]
     Yv = [it["y"].astype(np.int64) for it in val]
+    del train, val                                   # raw inputs no longer needed
     n_in = Z[0].shape[1]
     print("train items {}, val items {}, inputs {}, device {}".format(len(Z), len(Zv), n_in,
                                                                     device.type), flush=True)
