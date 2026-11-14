@@ -42,8 +42,9 @@ from pompeu import paths
 from pompeu.external import examples
 
 # Params
-# 2: trained on examples v2 (the simulator blurs the ball like the ATD).
-VERSION = 2
+# 1: the committed artifact (artifacts/seqmodel_v1.pt), trained on external train/val. A v2 on
+# examples v2 (ATD-like ball blur) was planned but never trained: bump only with its artifact.
+VERSION = 1
 ARTIFACT = os.path.join(paths.ROOT, "artifacts", "seqmodel_v{}.pt".format(VERSION))
 CONFIG = {
     "d_model": 128,
@@ -196,7 +197,8 @@ def load(path=ARTIFACT, device=None):
     torch = _torch()
     if not os.path.isfile(path):
         raise IOError("{} not found -- run scripts/train_seqmodel.py".format(path))
-    device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+    # CPU unless asked: inference is canonical on CPU (rule 10); CPU and CUDA are not bit-identical.
+    device = device or "cpu"
     blob = torch.load(path, map_location=device)
     model = build_model(blob["n_features"], blob["config"])
     model.load_state_dict(blob["state"])
