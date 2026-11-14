@@ -40,8 +40,15 @@ FEATURES_VERSION = 1
 
 
 def load_tagging_for(tracking):
-    """Smart Tagging for this match, or None when there is none (external datasets)."""
+    """Smart Tagging for this match, or None when there is none (external datasets).
+
+    Only tracking that comes from the provided ATD (meta source "atd:...", also after B3's
+    "+b3") gets the real tagging: a synthetic scene or any other Tracking that merely says
+    game "BAR-ATH" must not pick up the match's tags by accident.
+    """
     from pompeu.io.tagging import load_tagging
+    if not str(tracking.meta.get("source", "")).startswith("atd:"):
+        return None
     try:
         games.require(["smart_tagging"], tracking.meta.get("game", games.GAME))
     except (IOError, KeyError):
