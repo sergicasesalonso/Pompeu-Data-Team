@@ -57,6 +57,8 @@ def run(name, argv, env_extra=None):
 
 
 def main():
+    if "--sha-only" in sys.argv:
+        return sha_steps()
     run("build_train", [os.path.join(EXP, "tcn_build.py"), "--split", "train", "--seeds",
                         "0", "1", "2", "3", "--workers", "4"])
     run("build_val", [os.path.join(EXP, "tcn_build.py"), "--split", "val", "--seeds", "10", "11"])
@@ -78,6 +80,10 @@ def main():
         src = os.path.join(paths.CACHE_DIR, "tcn", "models", "chain_a" + ext)
         if os.path.isfile(src):
             shutil.copyfile(src, os.path.join(ROOT, "artifacts", "tcn_v1" + ext))
+    sha_steps()
+
+
+def sha_steps():
     home = os.path.expanduser("~/mtah/agent-cache")
     for tag in ("1", "2"):
         result = run("sha_" + tag, [os.path.join(EXP, "hsmm_tcn_sha.py"), "--config",
