@@ -15,6 +15,14 @@ model) trains on these and nothing else. For a (match, seed):
 
 Cached as parquet under cache/external/examples/ (gitignored, derived from licensed data).
 
+TEAM SWAP (the plan's symmetry augmentation, A7): swap=True exchanges home and away in the CLEAN
+match -- slot teams flipped, the attacking direction reversed, labels H <-> A -- and only then
+degrades, cleans and featurises it. Every feature is recomputed rather than translated column by
+column, so the augmentation cannot be subtly wrong; it costs a second build.
+
+TOKENS (A7's set encoder): per-player inputs at 5 Hz (every 5th frame) from the same cleaned
+match -- see player_tokens().
+
 MODEL_COLUMNS drops what would not mean the same thing on BAR-ATH: the Smart Tagging columns are
 NaN on every external match and real on BAR-ATH, so a model that learned them as "always missing"
 would meet unseen values at prediction time. Tagging enters the decision through the HSMM's own
@@ -29,16 +37,38 @@ import pandas as pd
 from pompeu import paths
 
 # Params
-VERSION = 1
+# 2: the simulator blurs the ball (ball_smooth_s) -- examples built before are not comparable.
+VERSION = 2
 MIN_POSSESSION_S = 5.0
 CACHE = os.path.join(paths.CACHE_DIR, "external", "examples")
 TAGGING_PREFIXES = ("st_", "sp_")
 TAGGING_COLUMNS = ("goal_active",)
 
 
-def _path(name, seed):
-    safe = name.replace(":", "_")
-    return os.path.join(CACHE, "{}_s{}_v{}.parquet".format(safe, seed, VERSION))
+TOKEN_STEP = 5            # frames per token step: 25 fps -> 5 Hz
+TOKEN_FEATURES = ("team", "x", "y", "vx", "vy", "dx_ball", "dy_ball", "conf")
+BALL_FEATURES = ("present", "x", "y", "vx", "vy", "speed")
+PLAYER_VMAX = 12.0        # m/s
+BALL_VMAX = 40.0          # m/s
+
+
+def _path(name, seed, swap=False, kind="features"):
+    safe = name.replace(":", "_") + ("_swap" if swap else "")
+    if kind == "features":
+        return os.path.join(CACHE, "{}_s{}_v{}.parquet".format(safe, seed, VERSION))
+    return os.path.join(CACHE, "{}_s{}_v{}_{}.npz".format(safe, seed, VERSION, kind))
+
+
+def swap_teams(tracking, labels):
+    """(Tracking, labels) with home and away exchanged: the same match seen from the other side."""
+    from dataclasses import replace
+    team = tracking.players_team
+    flipped = np.where(team >= 0, 1 - team, team).astype(np.int8)
+    names = tracking.meta.get("team_names", ("home", "away"))
+    meta = dict(tracking.meta, home_attack_sign=-int(tracking.meta["home_attack_sign"]),
+                team_names=(names[1], names[0]))
+    swapped = np.where(labels == 0, 1, np.where(labels == 1, 0, labels)).astype(np.int8)
+    return replace(tracking, players_team=flipped, meta=meta), swapped
 
 
 def model_columns(columns):
@@ -47,34 +77,40 @@ def model_columns(columns):
             if not c.startswith(TAGGING_PREFIXES) and c not in TAGGING_COLUMNS]
 
 
-def build(name, seed, run_lengths=None):
-    """(F, y): features of the degraded, cleaned match and its aligned labels (int8, X = 3)."""
+def cleaned(name, seed, swap=False, run_lengths=None):
+    """(cleaned degraded Tracking, aligned labels) for one (match, seed, swap)."""
     from pompeu import external
     from pompeu.clean import clean_tracking
     from pompeu.external import degrade
-    from pompeu.features.build import build_features
-
     if run_lengths is None:
         from pompeu.io.contract import load_tracking
         from pompeu.validate.stress import missing_run_lengths
         run_lengths = missing_run_lengths(load_tracking("atd"))
     tracking, labels = external.load(name)
+    if swap:
+        tracking, labels = swap_teams(tracking, labels)
     graded = np.where(tracking.half() > 0, labels, 3).astype(np.int8)
     y = external.align_labels(graded, MIN_POSSESSION_S, tracking.meta.get("fps", 25))
     degraded = degrade.degrade(tracking, labels, seed, run_lengths)
     clean, _ = clean_tracking(degraded, {})
-    F = build_features(clean, tagging=None)
-    return F, y
+    return clean, y
 
 
-def load(name, seed, run_lengths=None, cache=True):
-    """(F, y) for one (match, seed), from the cache once built."""
-    path = _path(name, seed)
+def build(name, seed, run_lengths=None, swap=False):
+    """(F, y): features of the degraded, cleaned match and its aligned labels (int8, X = 3)."""
+    from pompeu.features.build import build_features
+    clean, y = cleaned(name, seed, swap, run_lengths)
+    return build_features(clean, tagging=None), y
+
+
+def load(name, seed, run_lengths=None, cache=True, swap=False):
+    """(F, y) for one (match, seed[, swap]), from the cache once built."""
+    path = _path(name, seed, swap)
     if cache and os.path.isfile(path):
         frame = pd.read_parquet(path, engine="pyarrow")
         y = frame.pop("__label__").to_numpy(dtype=np.int8)
         return frame, y
-    F, y = build(name, seed, run_lengths)
+    F, y = build(name, seed, run_lengths, swap)
     if cache:
         os.makedirs(CACHE, exist_ok=True)
         out = F.copy()
@@ -82,6 +118,60 @@ def load(name, seed, run_lengths=None, cache=True):
         out.to_parquet(path + ".part", engine="pyarrow")
         os.replace(path + ".part", path)
     return F, y
+
+
+def player_tokens(tracking):
+    """{'players' (T, K, 8), 'mask' (T, K), 'ball' (T, 6)} at 5 Hz (TOKEN_FEATURES, BALL_FEATURES).
+
+    Everything in the frame where the home side attacks +x (pompeu.clean.normalize), scaled to
+    order one: positions as offsets from the centre spot over half the pitch, speeds over 10 m/s,
+    offsets to the ball over 20 m (0 without a ball). Slot order carries no meaning -- the set
+    encoder is permutation-invariant.
+    """
+    from pompeu.clean.normalize import attack_flip, rotate
+    from pompeu.features.kinematics import ball_kinematics, player_kinematics
+    length, width = tracking.meta["pitch"]
+    flip = attack_flip(tracking, 0)
+    rows = np.arange(0, tracking.n_frames, TOKEN_STEP)
+    xy = rotate(tracking.players_xy, flip, (length, width))[rows]
+    vel = player_kinematics(tracking)["vel"]
+    # Clipped to what a body can do: a jump at a tracklet seam is not a 500 m/s sprint.
+    vel = np.clip(np.where(flip[:, None, None], -vel, vel)[rows], -PLAYER_VMAX, PLAYER_VMAX)
+    ball = rotate(tracking.ball_xy, flip, (length, width))[rows]
+    bk = ball_kinematics(tracking)
+    bvel = np.clip(np.where(flip[:, None], -bk["vel"], bk["vel"])[rows], -BALL_VMAX, BALL_VMAX)
+    present = tracking.players_present[rows] & (tracking.players_conf[rows] > 0)
+    team = np.where(tracking.players_team[rows] == 0, 1.0, -1.0)
+    has_ball = ~np.isnan(ball[:, 0])
+    dx = np.where(has_ball[:, None], (xy[..., 0] - ball[:, None, 0]) / 20.0, 0.0)
+    dy = np.where(has_ball[:, None], (xy[..., 1] - ball[:, None, 1]) / 20.0, 0.0)
+    players = np.stack([team, (xy[..., 0] - length / 2) / (length / 2),
+                        (xy[..., 1] - width / 2) / (width / 2), vel[..., 0] / 10.0,
+                        vel[..., 1] / 10.0, dx, dy, tracking.players_conf[rows]], axis=-1)
+    players = np.where(present[..., None], np.nan_to_num(players), 0.0).astype(np.float32)
+    ball_tokens = np.stack([has_ball.astype(float), (ball[:, 0] - length / 2) / (length / 2),
+                            (ball[:, 1] - width / 2) / (width / 2), bvel[:, 0] / 10.0,
+                            bvel[:, 1] / 10.0,
+                            np.clip(bk["speed"][rows], 0, BALL_VMAX) / 10.0], axis=-1)
+    ball_tokens = np.nan_to_num(np.where(has_ball[:, None], ball_tokens, 0.0)).astype(np.float32)
+    return {"players": players, "mask": present, "ball": ball_tokens}
+
+
+def tokens(name, seed, swap=False, run_lengths=None, cache=True):
+    """player_tokens() of the cleaned degraded match plus 'y' at 5 Hz; cached as npz."""
+    path = _path(name, seed, swap, kind="tokens")
+    if cache and os.path.isfile(path):
+        with np.load(path) as stored:
+            return {key: stored[key] for key in stored.files}
+    clean, y = cleaned(name, seed, swap, run_lengths)
+    out = player_tokens(clean)
+    out["y"] = y[::TOKEN_STEP]
+    if cache:
+        os.makedirs(CACHE, exist_ok=True)
+        with open(path + ".part", "wb") as handle:
+            np.savez_compressed(handle, **out)
+        os.replace(path + ".part", path)
+    return out
 
 
 def matrix(names, seeds, step=1, run_lengths=None):

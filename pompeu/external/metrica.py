@@ -40,7 +40,7 @@ from pompeu.io.contract import SRC_ATD, SRC_NONE, Tracking
 
 # Params
 VERSION = 1
-ROOT = os.path.join(paths.ROOT, "data", "external", "metrica", "sample-data", "data")
+ROOT = os.path.join(os.environ.get("MTAH_DATA_DIR") or os.path.join(paths.ROOT, "data"), "external", "metrica", "sample-data", "data")
 CACHE = os.path.join(paths.CACHE_DIR, "external")
 GAMES = (1, 2, 3)
 PITCH = (105.0, 68.0)

@@ -11,6 +11,8 @@ ATD (scripts/degradation_fit.py compares the two, statistic by statistic):
                  missing (Metrica's ball is) count towards it. A run is dead_weight times likelier
                  to start on a dead-ball frame: on the public window the ATD misses the ball on 34%
                  of dead frames and ~6% of live ones.
+  ball blur      the clean ball is gaussian-smoothed (ball_smooth_s): the ATD's tracker blurs
+                 sharp changes of direction, so it shows far fewer touches than precise tracking.
   false ball     spike_rate (~1%: 2043 jumps > 40 m/s in 199319 ATD frames) of the remaining ball
                  frames are moved 10-40 m in a random direction -- what A1 cleans.
   identity swaps when two teammates come within swap_m of each other, with probability p_swap
@@ -71,6 +73,11 @@ PARAMS = {
     "duplicate_offset_m": 2.0,
     # The ATD's ball does carry per-frame noise: its step-speed distribution needs ~5 cm.
     "ball_jitter_m": 0.05,
+    # ... and it is SMOOTHED by the tracker: sharp changes of direction -- touches -- are blurred
+    # away. A gaussian of this many seconds over each observed stretch of the clean ball brings
+    # A4's touch rate on degraded matches to the ATD's ~8 per minute (raw DFL 16-19, raw Metrica
+    # ~22). Per source, because each source's raw ball is differently sharp; a number overrides.
+    "ball_smooth_s": {"dfl": 0.27, "metrica": 0.40},
     # A constant offset per tracklet, not per-frame noise: the ATD's positions are smooth (per-
     # frame noise of 5 cm would add ~1.8 m/s of fake speed to every player).
     "tracklet_bias_m": 0.1,
@@ -83,6 +90,18 @@ def _settings(params):
     if unknown:
         raise KeyError("unknown degrade params {}".format(sorted(unknown)))
     out.update(params or {})
+    return out
+
+
+def smooth_ball(xy, sigma_frames):
+    """Copy of the ball track, gaussian-smoothed within each observed stretch (never across a gap)."""
+    out = xy.copy()
+    if sigma_frames <= 0:
+        return out
+    from scipy.ndimage import gaussian_filter1d
+    for start, stop in zip(*runs(~np.isnan(xy[:, 0]))):
+        if stop - start > 2:
+            out[start:stop] = gaussian_filter1d(xy[start:stop], sigma_frames, axis=0, mode="nearest")
     return out
 
 
@@ -230,7 +249,10 @@ def degrade(tracking, labels, seed, run_lengths, params=None):
     pitch = np.array(tracking.meta["pitch"], dtype=np.float64)
 
     # Ball.
-    ball_xy = tracking.ball_xy.copy()
+    smooth = p["ball_smooth_s"]
+    if isinstance(smooth, dict):
+        smooth = smooth.get(tracking.meta["source"].split(":")[0], 0.0)
+    ball_xy = smooth_ball(tracking.ball_xy, smooth * fps)
     present = tracking.ball_present.copy()
     lengths = run_lengths[run_lengths <= p["max_gap_s"] * fps]
     rows = np.flatnonzero(tracking.half() > 0)

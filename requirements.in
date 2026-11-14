@@ -13,6 +13,7 @@
 #                                  inference, A7 if it enters the submission).
 # Regenerate both with pip freeze in clean 3.11 venvs whenever requirements.lock changes.
 kloppy==3.18.0
+lightgbm==4.6.0
 numba==0.66.0
 numpy==2.0.2
 pandas==2.3.3
