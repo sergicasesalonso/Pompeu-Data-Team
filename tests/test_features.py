@@ -172,3 +172,12 @@ def test_full_match(tracking):
                                                "collective", "context", "windows"}
     assert F["ball_present"][graded].mean() == pytest.approx(0.592, abs=0.01)
     assert proximity.RADII == (2, 5, 10)
+
+def test_tagging_only_for_real_atd_tracking(monkeypatch):
+    """A Tracking that only says game BAR-ATH (a synthetic scene) never gets the real tagging."""
+    from types import SimpleNamespace
+    monkeypatch.undo()          # drop conftest's hermetic patch: test the real function
+    from pompeu.features import build
+    for source in ("synthetic", "dfl:J03WN1", "dfl:J03WN1+degraded:0", ""):
+        fake = SimpleNamespace(meta={"game": "BAR-ATH", "source": source, "team_names": {}})
+        assert build.load_tagging_for(fake) is None
