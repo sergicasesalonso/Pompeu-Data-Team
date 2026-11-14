@@ -41,6 +41,22 @@ def _one(job):
     return name, "built", time.time() - started
 
 
+def _warm(names):
+    """Parse every match once, serially: the parsed-match cache is written in two steps (save,
+    then rewrite with labels), so workers that hit it together can read a half-written file or
+    collide on the .part file. A corrupt cached file (BadZipFile) is deleted and rebuilt."""
+    import zipfile
+    for name in names:
+        try:
+            external.load(name)
+        except (zipfile.BadZipFile, EOFError, ValueError, OSError):
+            path = os.path.join(paths.CACHE_DIR, "external", name.replace(":", "_") + "_v1.npz")
+            if os.path.isfile(path):
+                os.remove(path)
+            external.load(name)
+        print("  warm", name, flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--split", choices=("train", "val", "extra_train"), required=True)
@@ -54,6 +70,7 @@ def main():
     # Present = raw files found, or the parsed match already in cache/external/.
     names = [m for m in names if external.available(m) or os.path.isfile(os.path.join(
         paths.CACHE_DIR, "external", m.replace(":", "_") + "_v1.npz"))]
+    _warm(names)
     jobs = []
     for index, name in enumerate(names):
         for seed in args.seeds:
