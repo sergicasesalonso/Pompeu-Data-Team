@@ -95,3 +95,6 @@ results/*
 checkpoints/
 # ... except the committed artifacts, trained on public external data only.
 !artifacts/*.pt
+
+# internal team notes (kept in the private channel)
+equip/
