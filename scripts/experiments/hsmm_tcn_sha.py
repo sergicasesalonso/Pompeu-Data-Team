@@ -30,6 +30,17 @@ def main():
                                "--config", args.config, "--out", out], cwd=ROOT,
                               capture_output=True, text=True)
         if proc.returncode:
+            # Only the exception type and a short, path-free message leave (never the log).
+            lines = [x for x in proc.stderr.splitlines() if x.strip()]
+            last = lines[-1] if lines else ""
+            kind, _, msg = last.partition(":")
+            failure = {"failed": True, "error_type": kind.strip()[:60],
+                       "error_msg": "".join(c if c.isalnum() or c in " _.-" else "~"
+                                            for c in msg.strip()[:120])}
+            print(json.dumps(failure))
+            if os.environ.get("TORRE_METRICS"):
+                with open(os.environ["TORRE_METRICS"], "w", encoding="utf-8") as handle:
+                    json.dump(failure, handle)
             sys.exit("make_submission failed (exit {})".format(proc.returncode))
         with open(out, "rb") as handle:
             data = handle.read()
