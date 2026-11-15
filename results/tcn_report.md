@@ -88,3 +88,24 @@ Reading so far:
 - **Input bug found:** the generator never emits zone codes (BALL IN FINAL THIRD, BALL IN THE BOX, PLAYERS IN THE BOX), GOALS or kick-off set pieces. In training `st_zone_team`, `goal_active` and `sp_kickoff_*` are constant 0, but on BAR-ATH they are non-zero on 52 % / 10 % of frames. `st_active` doubles (mean 2.49 vs 1.18), and `st_prev_vote` is non-zero 44 % vs 96 %. The input weights of those columns never got a gradient, so on the real match they add noise. Fix: restrict the real tags to the codes the generator produces (`like_synthetic` in the script). The pipeline must do the same. The unfiltered "model moves as much" numbers above are contaminated by this. The tower run measures the filtered version.
 
 TODO (task 2, not started): `hsmm_tcn` method in the pipeline with deterministic CPU retraining (`tcn.train()` is added but not wired yet), `configs/hsmm_tcn.yaml`, and a sha256 check over two clean runs plus a second machine.
+
+## Reproduce the shipped model (hsmm_tcn, tcn_v1.pt, weights hash ceecf8915830d7c0)
+
+Verified on the tower, CPU only, 15-11: two trainings give the same weights hash and two
+`make_submission` runs with different caches give the same sha256 (8959a2ce91303dbb0d6d05c516af80c771266eda9491dd12cb223d0de72a2379).
+
+Environment: Python 3.11, `requirements-cpu-torch.lock` (torch 2.9.1+cpu, lightgbm 4.6.0, numpy 2.0.2),
+`CUBLAS_WORKSPACE_CONFIG=:4096:8`, `OMP_NUM_THREADS=4 MKL_NUM_THREADS=4` (the weights hash may depend on the thread count).
+Data: external train and val matches (DFL, Metrica) and the 20 SkillCorner open-data matches (LFS files, see `scripts/prepare_skillcorner.py`).
+
+```
+python scripts/experiments/tcn_build.py --split train --seeds 0 1 2 3 --workers 4
+python scripts/experiments/tcn_build.py --split val --seeds 10 11
+python scripts/experiments/tcn_build.py --split extra_train --seeds 0 --workers 4
+python scripts/experiments/tcn_train.py --out artifacts/tcn_v1.pt --extra --extra-seeds 0 --steps 2500 --eval-every 100 --dropout 0.3 --input-dropout 0.2 --weight-decay 0.05
+python scripts/make_submission.py --config configs/hsmm_tcn.yaml --out <file>
+```
+
+`configs/hsmm_tcn.yaml` pins `tcn.sha: ceecf8915830d7c0`: the pipeline stops if the weights differ.
+`scripts/experiments/tcn_chain.py` runs the whole chain (builds, training twice, sha256 twice) as one job;
+`--sha-only` repeats only the two submissions.

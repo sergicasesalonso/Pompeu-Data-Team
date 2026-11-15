@@ -17,6 +17,7 @@ pipeline:
       gbm_weight: 1.0
     tcn:
       model: artifacts/tcn_v1.pt
+      sha: ceecf8915830d7c0
       w_team: 1.0
       w_dead: 2.0
   clean: {}
