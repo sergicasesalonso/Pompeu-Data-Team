@@ -194,6 +194,17 @@ def main():
     if args.json:
         with open(args.json, "w", encoding="utf-8") as handle:
             json.dump(summary, handle, indent=1)
+    if os.environ.get("TORRE_METRICS"):
+        flat = {}
+        for c in order:
+            key = "".join(ch if ch.isalnum() or ch in "_.-" else "_" for ch in c)[:40]
+            flat[key + ".mean_spell"] = round(summary[c]["mean_spell"], 3)
+            flat[key + ".mean_macro"] = round(summary[c]["mean_macro"], 3)
+            flat[key + ".worst_loss"] = round(summary[c]["worst_loss"], 3)
+            for v in VALUES:
+                flat["{}.spell_{:g}s".format(key, v)] = round(results[c][v]["spell"], 3)
+        with open(os.environ["TORRE_METRICS"], "w", encoding="utf-8") as handle:
+            json.dump(flat, handle)
     print("runtime {:.0f} s".format(time.time() - started))
 
 
