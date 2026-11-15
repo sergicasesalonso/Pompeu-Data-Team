@@ -45,20 +45,20 @@ def decode(clean, hsmm=None, deadball=None, touches=None, tcn_params=None):
     """hsmm.decode_prepared result with the TCN expert filled in."""
     from pompeu.external import synthetic_tags as st
     from pompeu.features.build import build_features
-    from pompeu.models import hsmm
+    from pompeu.models import hsmm as hsmm_model
     t = dict(DEFAULTS, **(tcn_params or {}))
     if not os.path.isabs(t["model"]):
         t["model"] = os.path.join(paths.ROOT, t["model"])
     game = clean.meta.get("game")
     with st.injected({game: None}):                     # no tagging reaches the HSMM
-        prep = hsmm.prepare(clean, deadball or None, touches or None)
+        prep = hsmm_model.prepare(clean, deadball or None, touches or None)
     F = build_features(clean, tagging=None)
     log_p = tcn_log_probs(clean, F, t["model"], t["sha"])
     prep["learned"] = {"team": log_p[:, 0] - log_p[:, 1],
                        "dead": log_p[:, 2] - np.logaddexp(log_p[:, 0], log_p[:, 1])}
     params = dict(hsmm or {}, w_tagging=0.0, w_learned_team=float(t["w_team"]),
                   w_learned_dead=float(t["w_dead"]))
-    return hsmm.decode_prepared(prep, params)
+    return hsmm_model.decode_prepared(prep, params)
 
 
 def predict(tracking, hsmm=None, deadball=None, touches=None, tcn=None):
