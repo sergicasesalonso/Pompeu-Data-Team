@@ -36,7 +36,7 @@ python evaluation/validate_submission.py PompeuDataTeam.csv
 ```
 
 Expected `sha256` of `PompeuDataTeam.csv`:
-`bfd5ff16006b1e5c50371abeb528195cdc7a60397ec8bed90a8fccc468269f41`
+`b05c0e6a009dc653b9119a6719e89b03f8a625f72cc0d1cf88844f14b1f3527d`
 
 **Tests:** `python -m pytest` (about 3 minutes with the data; tests that need it skip themselves
 without it). Verified from a fresh clone, a new Python 3.11 venv and an empty cache: same sha256.

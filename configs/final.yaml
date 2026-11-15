@@ -1,15 +1,25 @@
-# The submission. Whatever this file says is what PompeuDataTeam.csv is generated from:
+# The submission. Whatever this file says is what the submission file is generated from
+# (python scripts/make_submission.py --config configs/final.yaml, see README).
 #
-#     python scripts/make_submission.py --config configs/final.yaml --out PompeuDataTeam.csv
-#
-# Currently identical to configs/rules_v0.yaml (A3 dead-ball detector + A4 touches/control state
-# machine). It changes only when a candidate beats it on the external bench, with the team's OK.
+# Identical to configs/hsmm_v1_fit_mbr.yaml (HSMM with weights fitted on val, A9 MBR decoding, A10
+# final label policy, GBM dead-ball detector). Needs artifacts/deadball_gbm_v1.txt and lightgbm
+# from requirements.lock. It replaced rules_v0 (configs/rules_v0.yaml, the safety fallback) with
+# the team's OK: external test 0.539 [0.503, 0.574] against 0.459.
 name: final
 tracking: atd
 pipeline:
-  method: rules_v0
+  method: hsmm_v1
   params:
-    deadball: {}   # pompeu.events.deadball.PARAMS overrides
-    touches: {}    # pompeu.events.touches.PARAMS overrides
-    rules: {}      # pompeu.models.rules.PARAMS overrides
+    hsmm:
+      w_proximity: 0.0
+      w_events: 0.5
+      a3_segment_llr: 1.0
+      w_dead: 2.0
+      rules_llr: 0.5
+      poss_median_s: 12.0
+      p_poss_to_dead: 0.4
+      mbr: true
+    deadball:
+      gbm_weight: 1.0
   clean: {}
+  policy: {}
