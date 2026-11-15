@@ -31,5 +31,5 @@ Feta la del 12-11 (B9, paper, revisió de la Línia B). Si torna a ser torn de s
 
 ## Per a Martí
 
-- Pesos del TCN: `artifacts/tcn_v1.pt` (+ `.json`, hash ceecf8915830d7c0) només són a la torre (`~/mtah/agent-wt/artifacts/`). El servidor no els pot baixar (`torre.py` no transfereix fitxers), així que el commit dels pesos l'has de fer tu: copia'ls al clon amb el torn, `git add -f` si cal, i comprova que `.gitignore` deixa `!artifacts/*.pt`.
-- `marti-tcn` (commits del servidor) no es pot pujar des del servidor: cal portar-lo a una branca pujable.
+- ~~Pesos del TCN~~ resolt: `artifacts/tcn_v1.pt` + `.json` comitejats a `marti-tcn` (a617782, hash ceecf8915830d7c0, comprovat amb sha256 x2 a la torre).
+- `marti-tcn` té 3 commits sense pujar (recepta + sha a la config, aquesta cua, pesos): la pujada la decideixes tu.
