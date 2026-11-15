@@ -28,3 +28,8 @@ Feta la del 12-11 (B9, paper, revisió de la Línia B). Si torna a ser torn de s
 
 - Fitxers de Sergi (`pompeu/models/`, `decode/`, `events/`, `features/`, `external/`, `validate/`, `requirements*`) i de l'Ander (`pompeu/vision/ball_det/`, `audio.py`).
 - `configs/final.yaml` (l'entrega continua sent `rules_v0`).
+
+## Per a Martí
+
+- Pesos del TCN: `artifacts/tcn_v1.pt` (+ `.json`, hash ceecf8915830d7c0) només són a la torre (`~/mtah/agent-wt/artifacts/`). El servidor no els pot baixar (`torre.py` no transfereix fitxers), així que el commit dels pesos l'has de fer tu: copia'ls al clon amb el torn, `git add -f` si cal, i comprova que `.gitignore` deixa `!artifacts/*.pt`.
+- `marti-tcn` (commits del servidor) no es pot pujar des del servidor: cal portar-lo a una branca pujable.
