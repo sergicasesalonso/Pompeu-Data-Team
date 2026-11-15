@@ -11,6 +11,7 @@ import collections
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -37,6 +38,9 @@ def main():
             failure = {"failed": True, "error_type": kind.strip()[:60],
                        "error_msg": "".join(c if c.isalnum() or c in "_.-" else "_"
                                             for c in msg.strip())[:64]}
+            frames = re.findall(r'File ".*?([\w]+\.py)", line (\d+), in (\w+)', proc.stderr)
+            for n, (fname, line, func) in enumerate(frames[-3:], 1):
+                failure["frame{}".format(n)] = "{}:{}:{}".format(fname, line, func)[:64]
             print(json.dumps(failure))
             if os.environ.get("TORRE_METRICS"):
                 with open(os.environ["TORRE_METRICS"], "w", encoding="utf-8") as handle:
