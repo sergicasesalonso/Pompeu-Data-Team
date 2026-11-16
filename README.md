@@ -3,22 +3,24 @@
 Our code is in `pompeu/`, the configs in `configs/` and the scripts in `scripts/`. How it works:
 [ARQUITECTURA.md](ARQUITECTURA.md). Everything below this section is the organisers' README.
 
-**1. Environment** — Python **3.11** (the lock pins numpy 2.0.2, which has no wheels for 3.13):
+**1. Environment** — Python **3.11** (the lock pins numpy 2.0.2, which has no wheels for 3.13).
+The submission needs torch on CPU, so install `requirements-cpu-torch.lock` (it is
+`requirements.lock` plus torch 2.9.1+cpu; no GPU is used):
 
 ```bash
 # Linux / macOS
 python3.11 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.lock
+pip install -r requirements-cpu-torch.lock
 
 # Windows (PowerShell): install Python 3.11 first; keep the venv on a short path,
 # because with a long path numba's DLL fails to load
 py -3.11 -m venv C:\venvs\pompeu
 C:\venvs\pompeu\Scripts\activate
-pip install -r requirements.lock
+pip install -r requirements-cpu-torch.lock
 ```
 
 With [uv](https://docs.astral.sh/uv/) instead: `uv venv --python 3.11 C:\venvs\pompeu` and
-`uv pip install --python C:\venvs\pompeu\Scripts\python.exe -r requirements.lock`.
+`uv pip install --python C:\venvs\pompeu\Scripts\python.exe -r requirements-cpu-torch.lock`.
 `container/pompeu.def` builds the same environment as an Apptainer image. Every command below
 assumes this venv is active.
 
@@ -36,10 +38,17 @@ python evaluation/validate_submission.py PompeuDataTeam.csv
 ```
 
 Expected `sha256` of `PompeuDataTeam.csv`:
-`bfd5ff16006b1e5c50371abeb528195cdc7a60397ec8bed90a8fccc468269f41`
+`8959a2ce91303dbb0d6d05c516af80c771266eda9491dd12cb223d0de72a2379`
+
+`configs/final.yaml` is `hsmm_tcn`: the HSMM with a dilated TCN as one more expert. Its weights
+are committed (`artifacts/tcn_v1.pt`, trained on public external data only) and pinned by hash in
+the config, so the pipeline stops if they differ. To retrain them deterministically on CPU
+instead, follow "Reproduce the shipped model" in
+[results/tcn_report.md](results/tcn_report.md) (same weights hash, `ceecf8915830d7c0`).
 
 **Tests:** `python -m pytest` (about 3 minutes with the data; tests that need it skip themselves
-without it). Verified from a fresh clone, a new Python 3.11 venv and an empty cache: same sha256.
+without it). The sha256 above was reproduced twice with different empty caches (Python 3.11,
+`requirements-cpu-torch.lock`, CPU).
 
 ---
 

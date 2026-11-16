@@ -2,14 +2,35 @@
 #
 #     python scripts/make_submission.py --config configs/final.yaml --out PompeuDataTeam.csv
 #
-# Currently identical to configs/rules_v0.yaml (A3 dead-ball detector + A4 touches/control state
-# machine). It changes only when a candidate beats it on the external bench, with the team's OK.
+# Identical to configs/hsmm_tcn.yaml: hsmm_v1_fit_mbr (HSMM with weights fitted on val, MBR
+# decoding, GBM dead-ball detector) with the dilated TCN as one more expert
+# (pompeu/experimental/hsmm_tcn.py). The TCN weights are committed (artifacts/tcn_v1.pt, trained
+# on public external data only) and pinned by hash below: the pipeline stops if they differ.
+# Needs torch (CPU) and lightgbm: install requirements-cpu-torch.lock (see README).
+# Single pre-registered pass on the external test split (dfl:J03WMX, dfl:J03WPY, metrica:3,
+# 2 seeds, min_possession_s 5): spellF1 0.678 [0.647, 0.709], macroF1 0.884, against
+# hsmm_v1_fit_mbr 0.539 [0.503, 0.574] and rules_v0 0.459 [0.426, 0.490] (the safety fallback,
+# configs/rules_v0.yaml).
 name: final
 tracking: atd
 pipeline:
-  method: rules_v0
+  method: hsmm_tcn
   params:
-    deadball: {}   # pompeu.events.deadball.PARAMS overrides
-    touches: {}    # pompeu.events.touches.PARAMS overrides
-    rules: {}      # pompeu.models.rules.PARAMS overrides
+    hsmm:
+      w_proximity: 0.0
+      w_events: 0.5
+      a3_segment_llr: 1.0
+      w_dead: 2.0
+      rules_llr: 0.5
+      poss_median_s: 12.0
+      p_poss_to_dead: 0.4
+      mbr: true
+    deadball:
+      gbm_weight: 1.0
+    tcn:
+      model: artifacts/tcn_v1.pt
+      sha: ceecf8915830d7c0
+      w_team: 1.0
+      w_dead: 2.0
   clean: {}
+  policy: {}
