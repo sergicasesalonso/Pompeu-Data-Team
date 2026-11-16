@@ -82,6 +82,10 @@ def main():
         assert ext["datasets"] == "test" and int(ext["seeds"]) == SEEDS, config
     print("test {}, seeds {}, configs {}".format(matches, SEEDS, list(CONFIGS)), flush=True)
 
+    # Warm the parsed-tracking caches here, once, before the workers start: with an empty cache
+    # several workers loading the same match at once race on the .npz (BadZipFile).
+    from pompeu.io.contract import load_tracking
+    load_tracking("atd")
     gap = np.full(1, pm.X, dtype=np.int8)
     truths = {v: [] for v in VALUES}
     for name in matches:
