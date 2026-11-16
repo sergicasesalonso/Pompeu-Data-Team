@@ -6,6 +6,7 @@ A config names a method and its parameters:
       method: baseline_nearest
       params: {window: 50}
       clean: {}            # optional: A1 cleaning first, with pompeu.clean.DEFAULTS overridden
+      policy: {}           # optional: A10's final label policy last (pompeu.decode.policy)
 
 and every method is a function (tracking, **params) -> (N,) array of H/A/D/X labels, one per row
 of the Tracking it was given. Methods never see a ground truth, and never assume the Tracking is a
@@ -20,6 +21,7 @@ import json
 import numpy as np
 
 from pompeu.clean import clean_tracking
+from pompeu.experimental import hsmm_tcn
 from pompeu.models import baseline, deadball_vote, hsmm, rules
 
 METHODS = {
@@ -27,6 +29,7 @@ METHODS = {
     "deadball_vote": deadball_vote.predict,     # A3: baseline vote + dead-ball detector
     "rules_v0": rules.predict,                  # A4: touches + control state machine
     "hsmm_v1": hsmm.predict,                    # A5: semi-Markov model over H/A/D
+    "hsmm_tcn": hsmm_tcn.predict,               # B: hsmm_v1 + dilated-TCN expert (CPU, deterministic)
 }
 
 
@@ -42,6 +45,10 @@ def predict(tracking, pipeline_cfg):
     if "clean" in pipeline_cfg:
         tracking, _ = clean_tracking(tracking, pipeline_cfg["clean"])
     labels = np.asarray(METHODS[method](tracking, **(pipeline_cfg.get("params") or {})))
+    if "policy" in pipeline_cfg:
+        # A10: zero X on graded frames, X outside the halves, no 1-2 frame runs.
+        from pompeu.decode.policy import finalize
+        labels = finalize(labels, tracking, pipeline_cfg["policy"])
     if labels.shape != (tracking.n_frames,):
         raise ValueError("{} returned shape {}, expected ({},)".format(
             method, labels.shape, tracking.n_frames))

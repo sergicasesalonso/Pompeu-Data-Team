@@ -73,6 +73,16 @@ def statistics(tracking):
 
     speed = clean_players.field_speed(tracking.players_xy, fps)
     out["median player speed (m/s)"] = np.clip(speed[graded & ~np.isnan(speed)], 0, 10)
+    from pompeu.events.touches import detect_events
+    from pompeu.features.build import build_features
+    from pompeu.clean import clean_tracking
+    clean, _ = clean_tracking(tracking, {})
+    F = build_features(clean, with_windows=False,
+                       groups=("ball", "proximity", "pitch_control", "collective", "context"))
+    events = detect_events(clean, F)
+    minutes = graded.sum() / fps / 60
+    out["A4 touches per minute"] = float(np.sum(events["kind"] == "touch") / minutes)
+    out["A4 controls per minute"] = float(np.sum(events["kind"] == "control") / minutes)
     d = np.hypot(tracking.players_xy[:, :, 0] - xy[:, None, 0],
                  tracking.players_xy[:, :, 1] - xy[:, None, 1])
     nearest = np.nanmin(np.where(np.isnan(d), np.inf, d), axis=1)

@@ -2,244 +2,219 @@
 
 More Than A Hack 2027, Phase 1 · Martí, Sergi, Ander · Code: https://github.com/sergicasesalonso/Pompeu-Data-Team
 
-> DRAFT. Sections marked **TODO** are not final yet. Final scores will come from
-> `results/leaderboard.csv`, external bench, `test` split, once the configuration is frozen on 16 November.
+Implementation detail for every module (all parameters, file by file) is in `ARQUITECTURA.md` in the repository.
 
 ## 1. Summary
 
-- **Task:** label each of the 199,319 frames of the tactical video `H`, `A`, `D` or `X`. Submissions are ranked on spellF1.
-- **Submission:** `configs/final.yaml`. It currently matches `configs/rules_v0.yaml`, i.e. A1 cleaning, the A3 dead-ball HMM and the A4 possession state machine. **TODO:** final method name and its external `test` spellF1 and macroF1.
-- **Approach.** First we clean the automatic tracking. A two-state HMM then segments live and dead ball. Next we detect touches and sustained controls with their team, and turn them into possessions. That step uses either a rule-based state machine that encodes the challenge's control rule, or a hidden semi-Markov model (HSMM) that combines the same cues with ball-free evidence. Every comparison between methods is made on a bench of **other** matches with provider labels (DFL/IDSSE, Metrica); the few values that were set from the public window are listed in §5 (`a3_segment_llr`) and §6 (label and degradation conventions). Before scoring, those matches are degraded until they look like our tracking. Line B adds ball observations taken from the video and the broadcast by code. Measured on the external bench, it only matters if it fills many gaps (§4).
+- **Task:** label each of the 199,319 frames of the tactical video `H`, `A`, `D` or `X`; ranked on spellF1.
+- **Submission: `hsmm_tcn`** (`configs/final.yaml`). A hidden semi-Markov model (HSMM) segments the match into team-owned live and dead periods with explicit durations. A dilated temporal convolutional network (TCN), trained only on public data from other matches, is added to it as one more expert. On our external bench (other matches with provider labels, degraded to look like our tracking) its single pre-registered `test` pass gives **spellF1 0.678 [0.647, 0.709]** and macroF1 0.884. The previous candidates get 0.539 (`hsmm_v1_fit_mbr`) and 0.459 (`rules_v0`, the rule-based safety submission) on the same bench (§7).
+- **Ball from the video (Line B)** was explored and is not submitted: the broadcast adds about 3 points of ball coverage, worth about +0.01 spellF1, within the noise (§4).
 
 ## 2. Approach and why
 
-There are two lines, joined by one data contract. `Tracking` (`pompeu/io/contract.py`) holds positions in metres on a 105.3 × 68.0 pitch, with one row per video frame, a confidence and a source per ball observation, and invariants checked on construction.
+Every module reads and writes one data contract, `Tracking` (`pompeu/io/contract.py`): metres on a 105.3 × 68.0 pitch, one row per video frame, and a confidence and source for each ball observation. **Line A** labels from the provided assets: A1 cleaning → A2 per-frame features (about 200 columns) → A3 dead-ball detector → A4 touches, controls and the `rules_v0` state machine → A5 HSMM → TCN expert. **Line B** adds ball from the video and broadcast into an augmented tracking, "ATD+". Switching to it only changes `tracking:` in the YAML.
 
-- **Line A, labelling from the provided assets:** A1 cleaning → A2 per-frame features (about 200 columns) → A3 dead-ball detector → A4 touches/controls and the `rules_v0` state machine → A5 `hsmm_v1` → **TODO** A7 learned sequence model, A8 calibration, A9 decoding for spellF1, A10 final label policy.
-- **Line B, more ball from the video:** B0 video checks (done), B1 ball pseudo-labels (done), B8 broadcast alignment (done), B3 tracker and fusion into an improved tracking ("ATD+", done) → **TODO** B2 ball detector and B7 referee whistle from audio (not yet in the final configuration).
-
-Why this design:
-
-- **spellF1 scores possessions as objects.** Predicted runs are matched to true runs by temporal IoU. Per-frame voting fragments possessions: `baseline_smooth50` produces 594 possessions on the full match, while `rules_v0` and `hsmm_v1` produce 250 and 238 (`full_poss` in `results/leaderboard.csv`). The output therefore has to be a segmentation with explicit durations and transitions, which is why we use an HMM, a state machine and an HSMM rather than a per-frame classifier.
-- **The ball is missing on 41% of graded frames** (CHALLENGE.md), and those gaps are where possession changes are lost. Line A uses ball-free evidence (collective shape, Smart Tagging, dead-ball structure). Line B tries to fill the gaps.
-- **Every module reads and writes the same `Tracking`.** Moving to the Line B tracking only means changing `tracking:` in the YAML. No Line A code changes.
+- **spellF1 scores possessions as objects**: runs matched by temporal IoU. Per-frame voting fragments them. On the external `test` bench, smoothed voting predicted twice as many possessions as there are (§3). Hence a segmentation with explicit durations and transitions.
+- **The ball is missing on 41% of graded frames** (CHALLENGE.md), and that is where possession changes are lost. Touch events cannot see them. The TCN reads about ±51 s of collective context, plus the Smart Tagging phases, and gives the HSMM team evidence inside those gaps.
 
 ## 3. Assets used and dropped
 
 | Asset | Used for | Status |
 |---|---|---|
 | Tactical ATD (players and ball) | Everything in Line A; source of B1 pseudo-labels | Used |
-| Tactical homography | Metres to pixels: B0 check, B1 pseudo-labels, B3 | Used. Valid on every frame |
-| Smart Tagging | Team evidence (attacking phases mean the team has the ball; defending phases mean it does not; zone codes do not vote), set-piece restarts, the `GOALS` phase | Used |
-| Tactical video | B0: decoded frame count equals the ATD's (199,319). B1/B2: ball detector | B0, B1 done; **TODO** B2 |
-| Tactical audio (AAC, 48 kHz) | B7: referee whistle | Present; **TODO** |
-| Broadcast ATD and homography | B8: extra ball observations after alignment to the tactical clock on player positions (median fit 0.29 m) | Used in the ATD+ experiments; not in the final configuration (§4) |
-| Broadcast video | Not used: B8 needs only the broadcast ATD | Dropped |
-| External open data (DFL/IDSSE, Metrica) | Validation bench; fitting the few model weights; training the learned components | Used, see §6 |
+| Smart Tagging | TCN inputs only (possession phases and set pieces, §5). In the submitted model the HSMM and A3 run without tags, the condition validated on the external bench | Used |
+| Tactical homography | Metres to pixels for B0, B1, B3 | Line B only |
+| Tactical video | B0: decoded frame count equals the ATD's (199,319); B1 pseudo-labels for a ball detector | Explored, not submitted |
+| Tactical audio (AAC, 48 kHz) | Referee-whistle candidates | Explored, not used |
+| Broadcast ATD and homography | Extra ball observations after alignment to the tactical clock | Explored, not submitted (§4) |
+| Broadcast video | Not needed: alignment uses only the broadcast ATD | Dropped |
+| External open data | Validation bench, model weights, TCN training (§6) | Used |
 
-Tried and dropped, or no effect on its own:
+**Tried and dropped** (all on external data; `val` = DFL J03WN1 + Metrica 2):
 
-- A1 cleaning removes 1,911 of the 2,043 ball jumps above 40 m/s (`results/cleaning_report.md`). We did not measure its effect on the baseline alone on the external bench; its role is to give the A2–A4 features and events a clean input.
-- An HSMM with a single `D` state let team evidence during stoppages (for example, a goalkeeper placing the ball) override dead ball. It was replaced by team-owned dead states (§5).
-- Using `rules_v0` as an HSMM expert (`hsmm_v1_rules`) mostly copies `rules_v0`.
-- **TODO:** list the remaining dropped variants once the final method is fixed.
+- **Smoothed per-frame voting** (`baseline_smooth25/50/125`): 1,367 possessions predicted on `test` against 692 true ones, 0.253 spellF1; with dead-ball segmentation (`deadball_vote125`) 0.412. These numbers are from an earlier simulator version (§6).
+- **HSMM with a single `D` state:** team evidence during stoppages (a goalkeeper placing the ball) overrode dead ball, so it was replaced by team-owned dead states (§5).
+- **Gap-team expert** (`hsmm_v2`): a ridge logistic regression on ball-free collective features (centroids, lines, compactness, pressing counts), giving team log-odds on frames without ball. It names the right team on 69.8% of DFL `val` gap frames, 78.0% after augmentation, but inside the HSMM the gain was only +0.001 to +0.003 spellF1. The TCN replaces it: it learns the same ball-free evidence jointly with the dead-ball and possession structure.
+- **HSMM weights fitted at a single label convention** (`hsmm_v2_fit`): it gains at 5 s and loses to `rules_v0` at 2 s on `val`, because it predicts too few, long possessions. It fails rule B (§6).
+- **Self-training** the gap-team expert on algorithmic pseudo-labels of the provided match: the pseudo-labels fall on easy frames, and recovered gap changes drop from 0.693 to 0.62–0.69. Negative.
+- **The HSMM reading Smart Tagging directly**, with synthetic tags on the external matches: +0.008 with overlapping intervals; weights ≥ 4 hurt. In the final model the HSMM gets no tagging; tags reach it only through the TCN.
 
 ## 4. Handling missing and noisy tracking
 
-Cleaning is done entirely by code (`pompeu/clean/`, A1). Nothing is corrected by hand.
+Cleaning is done entirely by code (`pompeu/clean/`, A1); nothing is corrected by hand.
 
-- **Ball:** we remove points that imply more than 40 m/s relative to both neighbours (repeated until none remain), drop fragments shorter than 3 frames, and fill gaps shorter than 0.5 s with a cubic spline unless the fill would need more than 40 m/s. Filled frames are marked `interp` with confidence 0.5.
-- **False ("phantom") balls:** some ATD balls sit still in open play with the nearest player 7–10 m away. Every event requires a player within 2 m, so these balls never cause a change of possession.
-- **Players:**
-  - A slot is flagged as frozen (confidence 0.3, not deleted) when it moves less than 0.2 m in 10 s while the other players move at a median speed above 1 m/s. Slots 24 and 46 turned out to be the goalkeepers, frozen by the tracker when off-screen.
-  - Duplicates (same team, within 0.5 m for more than 1 s) are removed from the shorter tracklet.
-  - Tracklets are stitched with the Hungarian algorithm within each connected component when they are less than 2 s and less than `9 m/s·Δt + 1 m` apart. Gaps of up to 1 s are filled linearly.
-- **Velocities** are recomputed from positions, because the ATD velocity column is empty on 89% of frames (`results/cleaning_report.md`).
-- **No ball:** features that need the ball are left as NaN and never imputed, and the length and age of each gap are exposed as features. Collective features (centroids, lines, compactness, pressing counts), Smart Tagging and the dead-ball structure all work without the ball. The state machine keeps the current possession through a gap. The HSMM still receives ball-free evidence there.
-- **Line B, more ball from video:**
-  - B0: the ATD ball projects inside the image on 99.91% of the frames where it is observed, so the frames, tracking and homography are aligned.
-  - B1: pseudo-labels for a ball detector are generated by code (§6).
-  - B8/B3: the broadcast ATD is aligned to the tactical clock from player positions alone (median distance 0.29 m), replays are discarded, and its ball enters the fusion as a candidate. Ball coverage of graded frames goes from 59.2% to 62.9% (ATD+ v1) and to 62.1% with candidate filters (v2). The two trackers disagree by about 0.7 m on the ball, plus a tail of fast or airborne balls and false ones; it is not a clock offset (lag 0 is the best).
-  - **Value of coverage** (`scripts/coverage_sweep.py`, external `val` match DFL J03WN1, 5 seeds; spellF1 of `rules_v0` / `hsmm_v1` as the share of in-half frames without ball changes):
+- **Ball:** a point implying more than 40 m/s to both neighbours is removed, fragments under 3 frames are dropped, and gaps under 0.5 s are spline-filled (marked `interp`, confidence 0.5). This removes 1,911 of the 2,043 jumps above 40 m/s (`results/cleaning_report.md`). Phantom balls never change possession, because every event needs a player within 2 m.
+- **Players:** frozen slots are flagged (confidence 0.3), not deleted; same-team duplicates are removed; tracklets are stitched with the Hungarian algorithm under a speed bound. Velocities are recomputed from positions, since the ATD column is empty on 89% of frames.
+- **No ball:** ball features stay NaN, never imputed; gap length and age are features, and every feature that can be NaN gets a missing flag in the TCN.
 
-    | Ball absent | `rules_v0` | `hsmm_v1` |
-    |---|---|---|
-    | 50% | 0.387 | 0.377 |
-    | 41% (our ATD) | 0.396 | 0.390 |
-    | 37% | 0.409 | 0.400 |
-    | 30% | 0.423 | 0.410 |
-    | 20% | 0.438 | 0.421 |
+**Line B (explored, not submitted).**
+- **B0:** the decoded video has exactly the ATD's 199,319 frames, and the ATD ball projects inside the image on 99.91% of observed frames.
+- **B1:** 88,937 ball pseudo-labels: the observed, cleaned ATD ball projected through the homography and filtered.
+- **B2:** a temporal heatmap ball detector was built and piloted, but CPU inference over the full match did not fit the deadline.
+- **B8:** the broadcast ATD is aligned to the tactical clock from player positions alone (median 0.29 m), and replays are discarded.
+- **B3:** physically constrained fusion. Coverage of graded frames goes from 59.2% to 62.1–62.9%, and ATD+ regenerates with the same hash.
 
-    The levels are nested: each match is degraded once at 20% and more ball is then erased to reach each higher rate, with a log-normal stand-in for the ATD's gap lengths. The 41% row is therefore not the same run as the 5 s column of the `min_possession_s` table in §6 (0.400 / 0.386), which degrades directly; only differences within one table are comparable. One point of coverage is worth about +0.0025 spellF1. The broadcast adds about 3 points, roughly +0.01, which is within the noise. Line B therefore matters only if the ball detector (B2) fills many gaps. **TODO:** coverage and spellF1 with B2, if it enters.
+A coverage sweep on DFL J03WN1 (earlier simulator; only differences are comparable) puts one point of coverage at about +0.0025 spellF1 for `rules_v0` and `hsmm_v1`. The broadcast's 3 points are worth about +0.01, so a video detector would have had to fill a large share of the gaps to matter.
 
 ## 5. Possession rules implemented
 
-**Dead ball (A3, `pompeu/events/deadball.py`).** A two-state live/dead HMM with sticky transitions (mean live period 40 s, mean dead period 20 s). Each cue adds log-odds per frame, scaled by 1/(0.5 s·fps) because consecutive frames are not independent. The cues are:
+**Dead ball (A3, `pompeu/events/deadball.py`).** A sticky two-state live/dead HMM (mean live period 40 s, dead 20 s). Cues add per-frame log-odds:
+- a slow field;
+- the ball out or not visible;
+- the ball still at a restart spot;
+- Smart Tagging set pieces and `GOALS`, when tagging is given (the submitted model gives none to A3);
+- pre-kick-off;
+- a restart kick, as strong live evidence.
 
-- mean field speed over 2 s (threshold 1.4 m/s);
-- ball more than 0.5 m outside the pitch: +8;
-- ball not visible: +0.5;
-- ball still for more than 1 s at a restart spot: +2 (+0.5 elsewhere);
-- a Smart Tagging set piece within 3 s: +1;
-- the `GOALS` phase: +2;
-- before each half's kick-off: +8;
-- a restart kick (ball goes from slow or invisible to above 4 m/s within 0.5 s, with a player within 2 m): −4 for 1.5 s.
+After Viterbi, live stretches under 5 s between dead periods are closed. A dead period runs from the ball crossing the line (or the field slowing) to the restart kick. A LightGBM live/dead expert adds to it (`artifacts/deadball_gbm_v1.txt`, lightgbm 4.6.0 pinned). It was trained on external `train` only (1,425,888 rows, 185 features), with early stopping on `val` at iteration 50. Combined with A3, its dead-ball F1 on `test` is 0.911, against 0.877 with the rules alone (`results/deadball_gbm_report.md`).
 
-After Viterbi decoding, live stretches shorter than 5 s between two dead periods are closed. Each dead period starts when the ball crosses the line, or otherwise when the field starts to slow down, and ends at the restart kick. All parameters are physical values. None was fitted on the provided match.
+**Restarts.** The restarting team owns the next possession:
+- throw-in: the opponent of the last nearby player;
+- after a goal: the conceding team;
+- over the goal line: corner or goal kick, depending on who touched last;
+- otherwise, the restart is classified from where the ball is placed (free kick by default).
 
-**Restarts.** A possession starts with the restarting team:
-
-- ball out over a touchline: a throw-in for the opponent of the last nearby player;
-- over the goal line between the posts: a goal, and the conceding team restarts;
-- over the goal line outside the posts: a corner if a defender touched the ball last, otherwise a goal kick;
-- ball not seen going out: classified from where the ball is placed, and a free kick if nothing fits.
-
-The restarting team comes from Smart Tagging first, then geometry, then the player who kicks.
+The team comes from Smart Tagging first when it is given, then geometry, then the kicker.
 
 **Events (A4, `pompeu/events/touches.py`).**
-
-- A *touch* is a change of ball speed above 3 m/s or of direction above 30° with a player within 2 m. Its team probability is 80% the distance difference and 20% pitch control.
+- A *touch* is a ball speed change above 3 m/s or a direction change above 30°, with a player within 2 m. Its team probability is 80% distance difference and 20% pitch control [4].
 - A *control* is the ball within 1.5 m of the same player for at least 0.6 s.
 
-**State machine (`rules_v0`, applied within each live stretch).**
+**`rules_v0` (the state machine; it is also an HSMM expert).**
+- A change of possession needs control by the opponent: a second opponent touch within 3 s, or an opponent control.
+- A single opponent touch (a deflection or a challenge) stays pending and is cancelled by a later event of the team in possession.
+- Aerial balls (above 15 m/s before and after the touch) are ignored.
+- Events with P(home) between 0.35 and 0.65 are ignored.
+- A loose or invisible ball stays with the last team in control.
 
-- **Change of possession** needs control by the opponent: a second opponent touch within 3 s, or an opponent control.
-- **Deflections:** a single opponent touch stays pending. A later event by the team in possession cancels it.
-- **Aerial or fly-by balls:** a touch with the ball above 15 m/s both before and after is ignored.
-- **Uncertain team:** events with P(home) between 0.35 and 0.65 are ignored.
-- **Loose, contested or invisible ball:** possession stays with the last team in control.
-- **Timing:** a confirmed change is dated back to the start of the streak in which the opponent was the team nearest the ball, never before the last event of the team in possession. This follows the challenge reference, which dates a change at the new team's first touch.
+**HSMM (`pompeu/models/hsmm.py`).**
+- **States:** `HL`/`AL` (live, team in possession) and `HD`/`AD` (dead, team to restart), with log-normal durations. Team-owned dead states make the restart structural (`HD → HL`, same team with probability 0.98).
+- **Experts:** A3 cues and segmentation, A4 events, the `rules_v0` output, the A3 restart team and the TCN.
+- **Fitting:** weights and duration parameters are fitted on external `val` only, by coordinate descent: w_events 0.5, w_dead 2.0, rules_llr 0.5, a3_segment_llr 1.0 (from a 0/1/3/6 grid), w_proximity 0, poss_median_s 12, p_poss_to_dead 0.4, gbm_weight 1.0.
+- **Decoding:** minimum Bayes risk (MBR) over 200 posterior samples, with a greedy boundary search on expected spellF1.
 
-**HSMM (`hsmm_v1`, `pompeu/models/hsmm.py`).**
+**TCN expert (`pompeu/experimental/tcn.py`, `hsmm_tcn.py`).**
+- **Architecture:** a non-causal dilated TCN at 5 Hz, with 96 channels, kernel 3 and dilations 1–128 (about ±51 s of context), about 0.5 M parameters. It has three output heads, one per label convention (2/5/8 s, §6), averaged at inference.
+- **Inputs:** the A2 features, standardised, with missing flags, plus 18 Smart Tagging context columns.
+- **Training:** on external `train` (4 DFL matches and Metrica 1, degradation seeds 0–3) and the 20 SkillCorner matches, each with 4 augmentations (team swap and y-mirror, recomputed from the clean match). Settings: AdamW, one-cycle, 2,500 steps, dropout 0.3, input dropout 0.2. The checkpoint is chosen by cross-entropy on `val` items built from degradation seeds 10–11, not the scored ones.
+- **Tags in training:** the external matches have no Smart Tagging, so the training inputs use *synthetic* tags. They are generated from the labels with an error model measured on the provided match against confident `rules_v0` stretches, with no ground truth.
+- **Tags on our match:** the real tags are restricted to the codes the generator produces: possession phases and four set-piece types. Zone, goal and kick-off codes never appeared in training.
+- **How it enters the HSMM:** through a product of experts. Its team log-odds log P(H) − log P(A) (weight 1) and its dead log-odds log P(D) − log(P(H)+P(A)) (weight 2) are added to the HSMM's per-frame evidence. Both weights were picked on `val`.
+- **Reproducibility:** training is deterministic on CPU. The committed weights (`artifacts/tcn_v1.pt`) are pinned by hash (`ceecf8915830d7c0`), and the pipeline stops if they differ.
 
-- **States:** four hidden states with explicit durations, `HL`/`AL` (live, team in possession) and `HD`/`AD` (dead, team to restart). Team-owned dead states keep team evidence and live/dead evidence factorised, and they make the restart part of the structure (`HD → HL`).
-- **Durations** are log-normal: possessions have a median of 8 s and a minimum of 0.2 s, stoppages a median of 20 s and a minimum of 1 s.
-- **Transitions:** a possession ends in a change of possession with probability 0.7 and in a stoppage with probability 0.3. After a stoppage, play restarts with the same team with probability 0.98.
-- **Experts:**
-  - the A3 cues and A3's final segmentation (`a3_segment_llr`);
-  - ball proximity, used only when the ball is within 4 m of a player and not contested (no evidence when both teams are within 2.5 m);
-  - A4 events, excluding fly-by balls;
-  - Smart Tagging votes, with a 5 s correlation;
-  - the A3 restart team.
-- **Decoding:** exact semi-Markov Viterbi and forward-backward (numba). Both are tested against exhaustive enumeration on small problems.
-
-**Weights and the public window.** The HSMM weights are being fitted only on the external `val` split (`scripts/fit_hsmm.py`, coordinate descent on spellF1). This includes `a3_segment_llr`, whose current value (3) was originally chosen on the stressed public window. **TODO:** fitted values and their `test` score. The fit's output, `configs/hsmm_v1_fit.yaml`, does not exist yet.
-
-**Final label policy (A10).** No `X` on graded frames. **TODO.**
+**Final label policy.** There is no `X` on graded frames, and `X` outside the halves. The A10 policy (`pompeu/decode/policy.py`) removes runs of 1–2 frames. For `hsmm_v1_fit_mbr` on `val` it changes no graded label.
 
 ## 6. Training and validation data
 
-**Rules we follow:**
-
-- No human labels on the provided match are used, in any amount or for any purpose.
-- The five public minutes are used only to check the pipeline: frame alignment, file format, and what the labels mean. They are never used for training, tuning or selection. Before the rule clarification of 22–23 October 2026, a stressed copy of the public window was part of our selection rule. It is no longer used, and every comparison in this document is on the external bench.
+**Rules we follow.**
+- No human labels on the provided match, for any purpose.
 - External data is about other games only.
-- Every tracking improvement on the provided match comes from code.
+- **The five public minutes were not used to train, tune or select anything.** They only check the pipeline: alignment, format and label meaning. Two values first read off that window were removed or re-justified without it: the A3 segmentation weight is refitted on `val`, and the degradation's `dead_weight` is checked by a label-free measurement (below).
 
 | Dataset | Source and licence | Labels: who and how | How much | Used for |
 |---|---|---|---|---|
-| DFL / IDSSE open data [1, 2] | figshare, doi:10.6084/m9.figshare.28196177 (files fetched from the identical Hugging Face mirror `pysport/idsse-data` by `scripts/prepare_external.py`). **CC BY 4.0**; data owner: Deutsche Fußball Liga | Provider labels: per-frame `BallStatus` (alive/dead) and `BallPossession` (home/away) in the official positional data (TRACAB optical tracking, 25 fps). No labels of ours. Mapped to the challenge's control rule by `align_labels` (below) | 7 full matches, 2022/23 season: 2 Bundesliga, 5 2. Bundesliga | `train` / `val` / `test` |
-| Metrica Sports sample data [3] | github.com/metrica-sports/sample-data. **No licence file**; the repository asks users to acknowledge the source and "be responsible with the use of this data" | Event data collected manually by the provider. We derive per-frame labels by code: the team of the last control event (pass, carry, recovery, set piece, shot), and `D` from ball out, foul or goal to the next restart | 3 anonymised full matches, 25 fps tracking (games 1–2 CSV, game 3 FIFA EPTS) | `train` / `val` / `test` |
-| Ball pseudo-labels (B1) | Our code (`pompeu/vision/pseudolabels.py`) on the provided match | No person involved: cleaned ATD ball positions, observed by the tracker (not interpolated), projected through the frame's homography | 88,937 frames kept: 70,449 `train` / 18,488 `val` | Training the ball detector (B2) |
+| DFL / IDSSE open data [1, 2] | figshare, doi:10.6084/m9.figshare.28196177. **CC BY 4.0**; owner Deutsche Fußball Liga | Provider: per-frame `BallStatus` and `BallPossession` (TRACAB, 25 fps), mapped by `align_labels` | 7 full matches, 2022/23 | `train` / `val` / `test` |
+| Metrica Sports sample data [3] | github.com/metrica-sports/sample-data; no licence file, the repository asks users to acknowledge the source | Provider events, collected manually; per-frame labels derived by code | 3 anonymised full matches | `train` / `val` / `test` |
+| SkillCorner Open Data [5] | github.com/SkillCorner/opendata, **MIT** | Provider phases of play; `D` = gaps between phases | 20 A-League 2024/25 matches | TCN training only |
+| Ball pseudo-labels (B1) | Our code on the provided match | No person: projected ATD ball, filtered | 88,937 frames, never published | Not used by the submission |
 
-**B1 filters.** A frame is kept only if:
+**Splits.** They are by whole match and fixed (`pompeu/external/__init__.py`):
 
-- the ball lands at least 16 px inside the image;
-- the frame's reprojection error is at most 0.357, the 95% quantile over graded frames (computed from the homography, not from any label);
-- the ball speed is below 35 m/s.
+| Split | Matches | Used for |
+|---|---|---|
+| `train` | DFL J03WOH, J03WQQ, J03WOY, J03WR9; Metrica 1 | everything that learns |
+| `val` | DFL J03WN1; Metrica 2 | weights, early stopping, selection |
+| `test` | DFL J03WMX, J03WPY; Metrica 3 | never trained or tuned on |
 
-25,936 kept frames have the ball within 1 m of a player and are flagged for down-weighting. The split is temporal: 1-minute blocks, one block in five for `val`. The table stays in `cache/` and is never published.
+Metrica 3 is the test match because games 1 and 2 have the ball glued to the carrier.
 
-**Splits** are by whole match and fixed (`pompeu/external/__init__.py`):
+**Degradation** (`pompeu/external/degrade.py`, seeded). External tracking is made to look like our ATD:
+- **Ball erased:** in runs drawn from the ATD's gap lengths, until **41%** of in-half frames have no ball. Runs start `dead_weight` = 5 times likelier on dead frames.
+- **Ball blurred:** a Gaussian within each observed run (0.27 s on DFL, 0.40 s on Metrica). It was calibrated so that A4's touch rate on degraded matches approaches the ATD's (about 8 per minute, against 16–22 on raw external tracking).
+- **Ball displaced:** 0.12% of ball frames are moved 10–40 m.
+- **Players:** identity swaps, freezes, gaps, dropouts and ghosts.
 
-- `test` (DFL J03WMX, J03WPY, Metrica 3) decides and is never trained or tuned on;
-- `val` (DFL J03WN1; Metrica 2 is planned but could not be downloaded, so every `val` number in this document is from J03WN1 alone) fits the few weights and is used for early stopping;
-- `train` (DFL J03WOH, J03WQQ, J03WOY, J03WR9, Metrica 1) is used by everything that learns.
+The value 5 was first read off the public window, so we checked it without any label: with our own A3 segmentation of the full match, the ball is absent on 74.7% of dead frames and 12.0% of live ones. That confirms that gaps concentrate in stoppages, so we keep 5 rather than retune the bench every number depends on. Every number in §6–§7 comes from this simulator version, except where marked as earlier.
 
-The test Metrica match is game 3 because games 1 and 2 have the ball glued to the carrier: the median distance to the nearest player is 0.28 m, against 1.4 m on DFL and 1.9 m on our ATD.
+**Label convention `min_possession_s`.** DFL's `BallPossession` changes on almost every touch. `align_labels` gives a possession shorter than `min_possession_s`, sandwiched between two of the other team, to the surrounding team. The convention of the hidden ground truth is unknown, so **every candidate is scored at 2, 5 and 8 s**. Some candidates swap places in the ranking depending on the convention (`val`, 5 seeds, spellF1):
 
-**Label conventions.**
+| Method | 2 s | 5 s | 8 s | Mean | Possessions per run |
+|---|---|---|---|---|---|
+| `rules_v0` | 0.440 | 0.471 | 0.413 | 0.441 | 395 |
+| `hsmm_v2_fit` (fitted at 5 s) | 0.428 | 0.515 | 0.469 | 0.471 | 350 |
+| `hsmm_v1_fit_mbr` | 0.470 | 0.561 | 0.511 | 0.514 | 343 |
+| **`hsmm_tcn`** (submitted) | **0.545** | **0.658** | **0.602** | **0.602** | 360 |
 
-- **DFL:** `BallPossession` changes on almost every touch, 8.4 possessions per live minute against 4.2 in the challenge's public reference (17 possessions in 4.0 live minutes). `align_labels` gives a possession shorter than `min_possession_s` = 5 s, sandwiched between two possessions of the other team with no stoppage in between, to the surrounding team. This brings DFL to 4.26 possessions per live minute. The 5 s value was set to match the possession rate of the public reference, so it does come from the public window, although no method was tuned on it. It matters: it changes the ranking between the top methods (see the sensitivity below), so we report the 0–8 s range and not only the 5 s result.
-- **Degradation:** the ball-loss weighting towards dead frames (`dead_weight`) was first set from a rate measured on the public window: 34% of dead frames have no ball, against about 6% of live ones. It has been re-measured without any label, using our own A3 dead/live segmentation on the full match (`scripts/ball_missing_by_state.py`): the ball is absent on 74.7% of dead frames and 12.0% of live ones, a ratio of 6.2. **TODO:** state which value the final configuration uses (the current default in `degrade.py` is 5.0).
-- **Sensitivity to `min_possession_s`** (`scripts/min_possession_sensitivity.py`, external `val`, 5 seeds). The threshold cannot be fixed from the public window, and it moves the ranking of the three best methods:
+True possessions per run: 609, 429 and 343 at 2, 5 and 8 s. On `val` the TCN reads synthetic tags, and its weights, smoothing and checkpoint were picked on these same matches, so its `val` row is optimistic.
 
-  | Method | 0 s | 2 s | 5 s | 8 s |
-  |---|---|---|---|---|
-  | `rules_v0` | 0.315 | 0.393 | 0.400 | 0.351 |
-  | `hsmm_v1` | 0.266 | 0.344 | 0.386 | 0.354 |
-  | `hsmm_v1_rules` | 0.298 | 0.380 | 0.401 | 0.352 |
+**Selection rule (rule B).** A candidate replaces `rules_v0` only if all of these hold:
+1. its mean spellF1 over 2/5/8 s on `val` is higher;
+2. it loses no more than 0.02 at any convention;
+3. all its weights come from `train`/`val`;
+4. a **single** `test` pass shows spellF1 better with non-overlapping intervals (or a tie with better macroF1), and a full-match sanity check that does not get worse;
+5. it regenerates the same sha256 from a clean clone.
 
-  Aligned possessions at 0, 2, 5 and 8 s: 500, 358, 242 and 194. `rules_v0` is the most robust: first at 0 and 2 s (by 0.017 and 0.013 over `hsmm_v1_rules`, no intervals computed), tied at 5 s, and 0.003 behind at 8 s. Absolute external scores are only comparable at the same `min_possession_s`. **TODO:** final choice and its justification from the challenge text (CHALLENGE.md: a player keeps the ball for a few seconds).
-
-**Degradation** (`pompeu/external/degrade.py`, seeded). Clean external tracking is made to look like our ATD before any method sees it:
-
-- the ball is erased in runs drawn from the ATD's own gap lengths (capped at 105 s) until 41% of in-half frames have no ball;
-- about 0.12% of ball frames are displaced by 10–40 m;
-- ball jitter of 5 cm;
-- identity swaps between crossing teammates;
-- far-from-ball players frozen;
-- heavy-tailed tracklets with gaps;
-- clustered dropouts of far players;
-- ghost duplicates;
-- slot re-packing like the ATD's 46 slots.
-
-Smart Tagging is not simulated, so tagging cues are silent on external matches. `scripts/degradation_fit.py` compares ten statistics between the degraded matches and our ATD using KS distances. **TODO:** report its table.
-
-**Learned components** train only on degraded external matches (`pompeu/external/examples.py`: degrade, clean with A1, build A2 features, aligned labels; Smart Tagging columns are excluded). The A3 live/dead LightGBM classifier (`scripts/train_deadball_gbm.py`) is implemented but off by default (`gbm_weight: 0`). **TODO:** its `test` result and the A7 sequence model.
+**What `test` has seen.** We say it as it happened. Before the rule was fixed, five HSMM configurations were scored on `test` on this simulator (§7, first five rows); `hsmm_v1_fit_mbr` was then chosen on `val`. For `hsmm_tcn`, the candidate set, the decision metric and the criterion were written down before its pass. It was then run once on `test`, together with `rules_v0` and `hsmm_v1_fit_mbr` on identical degraded matches, and nothing was changed afterwards.
 
 **Metrics** come from the organisers' `evaluation/possession_metrics.py`, never reimplemented, with block-bootstrap 5–95% intervals.
 
 ## 7. Results
 
-External bench, `test` split (DFL J03WMX, J03WPY, Metrica 3), 2 degradation seeds per match, from `results/leaderboard.csv`. "Possessions" is the predicted count over the test matches, against 692 in the aligned truth. "Full match" is the possession count on the provided match (no ground truth).
+External bench, `test` split (DFL J03WMX, J03WPY, Metrica 3), 2 degradation seeds per match, 5 s convention. "Possessions" is the mean predicted count over the test matches (692 true). "Full match" is the count on the provided match, which has no ground truth.
 
-| Method (config) | spellF1 [5–95%] | macroF1 | Possessions (truth 692) | Full match |
+| Method (config) | spellF1 [5–95%] | macroF1 | Possessions | Full match |
 |---|---|---|---|---|
-| `baseline_smooth50_clean` | 0.253 [0.237, 0.270] | 0.626 | 1367 | 594 |
-| `deadball_vote125` | 0.412 [0.386, 0.439] | 0.802 | 800.5 | 284 |
-| `rules_v0` (current final) | **TODO** | **TODO** | **TODO** | 250 |
-| `hsmm_v1` | **TODO** | **TODO** | **TODO** | 238 |
-| `hsmm_v1_fit` | **TODO** | **TODO** | **TODO** | **TODO** |
-| **final** | **TODO** | **TODO** | **TODO** | **TODO** |
+| `rules_v0` (safety submission) | 0.459 [0.426, 0.490] | 0.803 | 598 | 250 |
+| `hsmm_v2_fit` | 0.527 [0.489, 0.564] | 0.818 | – | – |
+| `hsmm_v1_fit` | 0.536 [0.500, 0.570] | 0.831 | – | – |
+| `hsmm_v1_fit_avg` | 0.536 [0.503, 0.568] | 0.831 | – | – |
+| `hsmm_v1_fit_mbr` | 0.539 [0.503, 0.574] | 0.832 | 479 | 204 |
+| **`hsmm_tcn` (submitted)** | **0.678 [0.647, 0.709]** | **0.884** | 555 | 206 |
 
-The leaderboard also holds an earlier, DFL-only bench (J03WMX, J03WPY), on which `hsmm_v1` scored 0.440 and `deadball_vote125` 0.390. That bench is superseded by the split above and the scores are not comparable. We accept a change only if it improves on the external `test` bench with non-overlapping intervals. Differences between intervals that overlap are not treated as real. (The organisers' 0.04 noise floor in EVALUATION.md refers to the full provided match, not to this bench.)
+At the other conventions, the single pass gives:
+
+| Convention | `rules_v0` | `hsmm_v1_fit_mbr` | `hsmm_tcn` |
+|---|---|---|---|
+| 2 s | 0.443 | 0.453 | **0.573** |
+| 8 s | 0.430 | 0.537 | **0.639** |
+
+The intervals of `hsmm_tcn` do not overlap with the others' at any of the three conventions. Re-scored in the same run, `rules_v0` and `hsmm_v1_fit_mbr` reproduce their earlier rows exactly (0.4588 and 0.5392), so the bench is unchanged (`scripts/experiments/test_pass.py`).
+
+On `test` the external matches have no Smart Tagging, so the TCN runs there with an empty tag table. Its 0.678 is therefore a no-tags figure. On `val`, removing the tag channels costs about 0.05 for the TCN alone and about 0.03 for HSMM+TCN (`results/tcn_report.md`), so tags help, but their transfer to the real match is uncertain (§8).
 
 ## 8. Limitations
 
-- **Changes inside long ball gaps** are still missed. Without the ball there are no touch events, so the state machine under-segments and short possessions inside a gap disappear. On the external `val` match, `rules_v0` goes from 0.438 with 20% of the ball missing to 0.387 with 50% (§4). Adding the broadcast ball recovers only about 3 points of coverage.
-- **Touches are sparse** (about 8 per minute), so dating changes relies on nearest-team streaks rather than on the touch itself.
-- **The external bench is imperfect:** different stadiums, trackers and label conventions. The degradation reproduces our gap and noise statistics, not our camera. Smart Tagging and team-assignment errors are not simulated.
-- **The 5 s label mapping** is a single global threshold matched to a 17-possession reference (about ±25%), and it changes the ranking between the top methods (§6).
-- **Metrica labels** are only as precise as the hand-collected events that open each possession (about one per second).
-- **TODO:** final failure analysis. With more time we would add ball height (B4), player re-detection (B5) and a larger learned sequence model.
+- **Under-segmentation.** Every method predicts fewer possessions than the truth: 555 against 692 on `test` for the TCN, and 206 on the full match, below our prior expectation of 300–400. The TCN eases this, but it does not remove it. Missing possessions are the main error, and they cost most at the 2 s convention.
+- **No ball on 41% of frames.** Changes inside long gaps rely on ball-free evidence alone. On `val`, `rules_v0` goes from 0.438 with 20% of the ball missing to 0.387 with 50%.
+- **Smart Tagging transfer.** The TCN learned from synthetic tags. The provided match's real tags agree with the tracking at least as well as the synthetic ones (team agreement 0.85 against 0.68), but they are sparser: they cover 27% of ball-missing frames against 43%. The gain on the real match may be smaller than on `val`, and it is not measured on `test`, which has no tags.
+- **In-sample `val` numbers.** Weights, the TCN checkpoint and selection all use the same two `val` matches. One of them is Metrica, with a ball partly rebuilt from events. Only the `test` pass is out of sample, and `test` was read for five earlier configurations (§6).
+- **Unknown label convention.** The 2–8 s range is a hedge, not a measurement.
+- **An imperfect external bench:** other stadiums, trackers and label conventions, and Metrica labels only as precise as hand-collected events.
+- **With more time:**
+  - a temporal model that predicts possession counts closer to the truth;
+  - richer real tags, or a model trained on the provided match's tag statistics;
+  - a video ball detector able to fill a large share of the gaps.
 
 ## 9. Reproduction
 
-Python 3.11, `pip install -r requirements.lock` (on Windows, put the virtual environment on a short path so numba's DLL loads; `container/pompeu.def` builds the same environment with Apptainer). Unpack the match bundle into `data/` (see `data/README.md`). The repository contains no match data. Then:
+1. **Environment:** Python 3.11 and `pip install -r requirements-cpu-torch.lock`. It is `requirements.lock` plus torch 2.9.1 for CPU, and it pins numpy 2.0.2 and lightgbm 4.6.0. On Windows, use a short virtual-environment path so numba's DLL loads.
+2. **Data:** unpack the match bundle into `data/` (see `data/README.md`). The repository contains no match data.
+3. **Run:**
 
-```bash
-python scripts/make_submission.py --config configs/final.yaml --out PompeuDataTeam.csv
-python evaluation/validate_submission.py PompeuDataTeam.csv
-```
+   ```bash
+   python scripts/make_submission.py --config configs/final.yaml --out PompeuDataTeam.csv
+   python evaluation/validate_submission.py PompeuDataTeam.csv
+   ```
 
-`make_submission.py` prints the sha256. Expected: **TODO** (currently `bfd5ff16006b1e5c50371abeb528195cdc7a60397ec8bed90a8fccc468269f41` for `rules_v0`).
+Expected sha256: `8959a2ce91303dbb0d6d05c516af80c771266eda9491dd12cb223d0de72a2379`, reproduced with empty caches on CPU. The run needs the committed artifacts `artifacts/tcn_v1.pt` (pinned by hash) and `artifacts/deadball_gbm_v1.txt`, and no GPU. To retrain the TCN deterministically on CPU instead (same weights hash), follow "Reproduce the shipped model" in `results/tcn_report.md`.
 
-To rebuild the external bench:
-
-```bash
-python scripts/prepare_external.py --matches all
-git clone https://github.com/metrica-sports/sample-data data/external/metrica/sample-data
-python scripts/run_validation.py --config configs/final.yaml
-```
-
-The DFL files are downloaded by `prepare_external.py`, and the Metrica repository is cloned into `data/external/metrica/sample-data`. `run_validation.py` appends a row to `results/leaderboard.csv`.
-
-**TODO:** GPU steps (detector weights, determinism settings) if Line B enters the final configuration. The Line B steps that do not need a GPU (broadcast alignment and fusion, `scripts/build_atd_plus.py`) are numpy-only, and the ATD+ they write is hashed over its arrays, so two runs can be compared (**to verify:** two runs on the tower give the same hash).
+To rebuild the external bench and score a config: `python scripts/prepare_external.py --matches all`, clone the Metrica sample data into `data/external/metrica/sample-data`, then `python scripts/run_validation.py --config configs/final.yaml`.
 
 ## References
 
 1. Bassek, M., Rein, R., Weber, H., & Memmert, D. (2025). An integrated dataset of spatiotemporal and event data in elite soccer. *Scientific Data*, 12, 195. https://doi.org/10.1038/s41597-025-04505-y
-2. Bassek, M., Rein, R., Weber, H., & Memmert, D. (2025). An integrated dataset of spatiotemporal and event data in elite soccer [Data set]. figshare. https://doi.org/10.6084/m9.figshare.28196177 (CC BY 4.0). Mirror: https://huggingface.co/datasets/pysport/idsse-data
+2. Bassek, M., Rein, R., Weber, H., & Memmert, D. (2025). An integrated dataset of spatiotemporal and event data in elite soccer [Data set]. figshare. https://doi.org/10.6084/m9.figshare.28196177 (CC BY 4.0).
 3. Metrica Sports. Sample data (tracking and event data, 3 anonymised matches). https://github.com/metrica-sports/sample-data
 4. Spearman, W. (2018). Beyond expected goals. *MIT Sloan Sports Analytics Conference*. (Pitch-control model used in A2.)
+5. SkillCorner. Open data (broadcast tracking, phases of play and dynamic events). https://github.com/SkillCorner/opendata (MIT licence).
+6. Idea only, no code reused: another participant's public repository (github.com/agamemnon-labs/football-analytics, MIT) describes a dilated temporal CNN over per-team features, with Smart Tagging as input and synthetic tags for external matches. It prompted our synthetic-tagging experiment and the TCN expert (§5).

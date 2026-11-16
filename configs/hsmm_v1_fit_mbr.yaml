@@ -1,0 +1,19 @@
+# hsmm_v1_fit (weights fitted on val) + A9 MBR decoding + A10 final label policy.
+name: hsmm_v1_fit_mbr
+tracking: atd
+pipeline:
+  method: hsmm_v1
+  params:
+    hsmm:
+      w_proximity: 0.0
+      w_events: 0.5
+      a3_segment_llr: 1.0
+      w_dead: 2.0
+      rules_llr: 0.5
+      poss_median_s: 12.0
+      p_poss_to_dead: 0.4
+      mbr: true
+    deadball:
+      gbm_weight: 1.0
+  clean: {}
+  policy: {}

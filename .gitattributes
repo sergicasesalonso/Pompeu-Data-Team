@@ -1,0 +1,3 @@
+# Trained model artifacts are byte-exact files (LightGBM text models break with CRLF on Windows
+# checkouts under core.autocrlf=true): never convert their line endings.
+artifacts/** -text

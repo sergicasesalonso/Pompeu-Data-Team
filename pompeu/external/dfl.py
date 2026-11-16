@@ -51,7 +51,7 @@ from pompeu.io.contract import SRC_ATD, SRC_NONE, Tracking
 # Params
 # Bump when the conversion changes, so cached matches are rebuilt.
 VERSION = 1
-ROOT = os.path.join(paths.ROOT, "data", "external", "idsse")
+ROOT = os.path.join(os.environ.get("MTAH_DATA_DIR") or os.path.join(paths.ROOT, "data"), "external", "idsse")
 CACHE = os.path.join(paths.CACHE_DIR, "external")
 MATCHES = {
     "J03WMX": "1. FC Köln - FC Bayern München (Bundesliga)",

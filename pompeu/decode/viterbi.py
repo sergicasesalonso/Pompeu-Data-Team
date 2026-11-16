@@ -207,3 +207,104 @@ def cumulative(emissions):
     out = np.zeros((emissions.shape[0] + 1, emissions.shape[1]))
     np.cumsum(emissions, axis=0, out=out[1:])
     return out
+
+
+# -- sampling (A9's MBR needs whole segmentations drawn from the posterior) ----------------------
+
+@njit(cache=True)
+def _forward_kernel(E, log_dur, trans, start):
+    """alpha (N+1, S): a segment of s ends at t; incoming (N+1, S): a segment of s starts at u."""
+    N = E.shape[0] - 1
+    S = E.shape[1]
+    D = log_dur.shape[1] - 1
+    alpha = np.full((N + 1, S), NEG_INF)
+    incoming = np.full((N + 1, S), NEG_INF)
+    for s in range(S):
+        incoming[0, s] = start[s]
+    terms = np.empty(D + 1)
+    for t in range(1, N + 1):
+        for s in range(S):
+            top = NEG_INF
+            last = min(D, t)
+            for d in range(1, last + 1):
+                x = incoming[t - d, s] + log_dur[s, d] - E[t - d, s]
+                terms[d] = x
+                if x > top:
+                    top = x
+            if top == NEG_INF:
+                continue
+            acc = 0.0
+            for d in range(1, last + 1):
+                if terms[d] != NEG_INF:
+                    acc += np.exp(terms[d] - top)
+            alpha[t, s] = top + np.log(acc) + E[t, s]
+        if t < N:
+            for s2 in range(S):
+                acc = NEG_INF
+                for s in range(S):
+                    acc = _logaddexp(acc, alpha[t, s] + trans[t, s, s2])
+                incoming[t, s2] = acc
+    return alpha, incoming
+
+
+@njit(cache=True)
+def _categorical(log_weights, n):
+    top = NEG_INF
+    for i in range(n):
+        if log_weights[i] > top:
+            top = log_weights[i]
+    total = 0.0
+    for i in range(n):
+        if log_weights[i] != NEG_INF:
+            total += np.exp(log_weights[i] - top)
+    r = np.random.random() * total
+    acc = 0.0
+    for i in range(n):
+        if log_weights[i] != NEG_INF:
+            acc += np.exp(log_weights[i] - top)
+            if acc >= r:
+                return i
+    return n - 1
+
+
+@njit(cache=True)
+def _sample_kernel(E, log_dur, trans, alpha, incoming, n_samples, seed):
+    N = E.shape[0] - 1
+    S = E.shape[1]
+    D = log_dur.shape[1] - 1
+    np.random.seed(seed)
+    out = np.empty((n_samples, N), dtype=np.int8)
+    weights = np.empty(max(D, S) + 1)
+    for k in range(n_samples):
+        for s in range(S):
+            weights[s] = alpha[N, s]
+        state = _categorical(weights, S)
+        t = N
+        while t > 0:
+            last = min(D, t)
+            for d in range(1, last + 1):
+                inc = incoming[t - d, state]
+                ld = log_dur[state, d]
+                if inc == NEG_INF or ld == NEG_INF:
+                    weights[d - 1] = NEG_INF
+                else:
+                    weights[d - 1] = inc + ld + E[t, state] - E[t - d, state]
+            d = _categorical(weights, last) + 1
+            u = t - d
+            for i in range(u, t):
+                out[k, i] = state
+            if u == 0:
+                break
+            for s in range(S):
+                weights[s] = alpha[u, s] + trans[u, s, state]
+            state = _categorical(weights, S)
+            t = u
+    return out
+
+
+def sample(E, log_dur, trans, start, n_samples, seed=0):
+    """(n_samples, N) int8 state sequences drawn exactly from the posterior over segmentations
+    (forward filtering, backward sampling). Seeded: same seed, same samples."""
+    E, log_dur, trans, start = _as_arrays(E, log_dur, trans, start)
+    alpha, incoming = _forward_kernel(E, log_dur, trans, start)
+    return _sample_kernel(E, log_dur, trans, alpha, incoming, int(n_samples), int(seed))

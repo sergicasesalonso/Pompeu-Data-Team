@@ -79,6 +79,7 @@ from pompeu.features.build import build_features
 STATES = ("HL", "AL", "HD", "AD")
 HL, AL, HD, AD = 0, 1, 2, 3
 LABEL_OF_STATE = np.array(["H", "A", "D", "D"])
+CODE_OF_STATE = np.array([0, 1, 2, 2], dtype=np.int8)
 TEAM_SIGN = np.array([1.0, -1.0, 1.0, -1.0])    # +: home
 DEAD_SIGN = np.array([-1.0, -1.0, 1.0, 1.0])    # +: dead
 PARAMS = {
@@ -113,13 +114,16 @@ PARAMS = {
     "restart_window_s": 3.0,
     "w_restart": 1.0,
     "rules_llr": 0.0,            # per look, for rules_v0's team on its live frames (A4's output)
-    "w_learned_team": 0.0,       # A7's sequence model, when prepare()["learned"] carries it
-    "w_learned_dead": 0.0,
+    "w_learned_team": 0.0,       # A7's sequence model (hsmm_v2): weight of its team log-odds ...
+    "w_learned_dead": 0.0,       # ... and of its dead-ball log-odds; 0 = not used
+    "learned_models": None,      # model path(s); None = artifacts/seqmodel_v1.pt; a list = ensemble
     # hsmm_v2 proposal: ball-free team evidence inside ball gaps (pompeu.experts.gap_team), per
     # look like the other per-frame cues. 0 = off, and every existing config is unchanged.
     "gap_team_weight": 0.0,
     "gap_team_model": None,      # path to its JSON (scripts/train_gap_team.py)
     "posteriors": False,
+    "mbr": False,                # A9: minimum-Bayes-risk labels instead of the Viterbi ones
+    "mbr_params": None,          # pompeu.decode.mbr.PARAMS overrides
 }
 
 
@@ -294,6 +298,12 @@ def decode_prepared(prep, hsmm=None):
         trans = np.broadcast_to(T, (hi - lo + 1, 4, 4))
         states, segs, _ = sm.viterbi(E, log_dur, trans, start)
         labels[lo:hi] = LABEL_OF_STATE[states]
+        if p["mbr"]:
+            # A9: the labels with the best expected spellF1 under this half's posterior.
+            from pompeu.decode import mbr
+            codes, _, _ = mbr.decode_half(E, log_dur, trans, start, CODE_OF_STATE,
+                                          p["mbr_params"], fps)
+            labels[lo:hi] = np.array(["H", "A", "D"])[codes]
         segments += [(tracking.frame0 + lo + a, tracking.frame0 + lo + b, STATES[s])
                      for a, b, s in segs]
         if posterior is not None:
@@ -305,10 +315,36 @@ def decode_prepared(prep, hsmm=None):
             "evidence": evidence, "deadball": dead, "events": prep["events"]}
 
 
+def add_learned(prep, artifact=None):
+    """Fill prep['learned'] with A7's sequence model: per-frame log-odds, temperature-calibrated.
+
+    team = log P(H) - log P(A); dead = log P(D) - log(P(H) + P(A)). artifact: one model path or a
+    list (A8's ensemble: log-probabilities averaged over members).
+    """
+    from pompeu.models import seqmodel
+    paths_ = artifact or [seqmodel.ARTIFACT]
+    paths_ = [paths_] if isinstance(paths_, str) else list(paths_)
+    total = None
+    for path in paths_:
+        model, norm = seqmodel.load(path)
+        log_p = seqmodel.predict_tracking(model, norm, prep["tracking"],
+                                          temperature=norm.get("temperature", 1.0))
+        total = log_p if total is None else total + log_p
+    log_p = total / len(paths_)
+    log_p = log_p - np.logaddexp.reduce(log_p, axis=1, keepdims=True)
+    prep["learned"] = {"team": log_p[:, 0] - log_p[:, 1],
+                       "dead": log_p[:, 2] - np.logaddexp(log_p[:, 0], log_p[:, 1])}
+    return prep
+
+
 def decode(tracking, hsmm=None, deadball_params=None, touches_params=None):
     """{'labels' (N,) H/A/D, 'segments' [(start, stop, state name)] absolute, 'posterior'
     (N, 3) P(H), P(A), P(D) or None, 'evidence', 'deadball', 'events'} for a cleaned Tracking."""
-    return decode_prepared(prepare(tracking, deadball_params, touches_params), hsmm)
+    p = _settings(hsmm)
+    prep = prepare(tracking, deadball_params, touches_params)
+    if p["w_learned_team"] or p["w_learned_dead"]:
+        add_learned(prep, p["learned_models"])
+    return decode_prepared(prep, hsmm)
 
 
 def predict(tracking, hsmm=None, deadball=None, touches=None):

@@ -1,0 +1,24 @@
+# hsmm_v1_fit_mbr + the TCN expert (pompeu.experimental.hsmm_tcn): val 0.603 (HSMM+TCN r2 1/2 MBR), not scored on test.
+name: hsmm_tcn
+tracking: atd
+pipeline:
+  method: hsmm_tcn
+  params:
+    hsmm:
+      w_proximity: 0.0
+      w_events: 0.5
+      a3_segment_llr: 1.0
+      w_dead: 2.0
+      rules_llr: 0.5
+      poss_median_s: 12.0
+      p_poss_to_dead: 0.4
+      mbr: true
+    deadball:
+      gbm_weight: 1.0
+    tcn:
+      model: artifacts/tcn_v1.pt
+      sha: 7aea823756b71b7e      # sha256 of artifacts/tcn_v1.pt (training run ceecf8915830d7c0)
+      w_team: 1.0
+      w_dead: 2.0
+  clean: {}
+  policy: {}

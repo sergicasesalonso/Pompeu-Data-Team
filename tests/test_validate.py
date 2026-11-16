@@ -111,7 +111,8 @@ def test_harness_runs_and_matches_published_public_score(tracking, tmp_path):
     assert round(result["public_clean"]["spell"], 4) == 0.3256
     assert round(result["public_clean"]["macro"], 4) == 0.6207
     assert set(result["public_stress"]) == {0.3, 0.5, 0.7}
-    assert result["external"]["status"].startswith("pending")
+    # Pending without the external matches; evaluated (no "status" key) when they are present.
+    assert result["external"].get("status", "pending").startswith("pending")
     assert result["full_match_sanity"]["x_on_graded"] == 0
     assert row["config_hash"] == harness.pipeline.config_hash(cfg)
 
