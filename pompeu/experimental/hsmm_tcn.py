@@ -31,10 +31,16 @@ DEFAULTS = {"model": ARTIFACT, "sha": None, "w_team": 1.0, "w_dead": 2.0}
 def tcn_log_probs(clean, F, model_path, sha=None):
     """(N, 3) per-frame log P(H), P(A), P(D) from the TCN with the like-synthetic real tags."""
     from pompeu.features.build import load_tagging_for
+    if sha is not None:
+        # sha256 of the artifact FILE (prefix as long as `sha`). Portable: re-serialising the
+        # state dict with torch.save (tcn.state_hash) gives different bytes on Windows/Linux.
+        import hashlib
+        with open(model_path, "rb") as handle:
+            got = hashlib.sha256(handle.read()).hexdigest()[:len(sha)]
+        if got != sha:
+            raise ValueError("TCN weights file sha256 {} != expected {} ({})".format(
+                got, sha, model_path))
     model, norm = tcn.load(model_path)
-    if sha is not None and tcn.state_hash(model) != sha:
-        raise ValueError("TCN weights hash {} != expected {} ({})".format(
-            tcn.state_hash(model), sha, model_path))
     tags = load_tagging_for(clean)
     tags = tcn.empty_tagging() if tags is None else tcn.like_synthetic(tags)
     X, names = tcn.inputs_from(clean, tags, F)
