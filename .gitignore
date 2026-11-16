@@ -87,11 +87,14 @@ results/*
 # Weights trained on the match video, crops, detections and audio extracts are derived from the
 # gated data. They live in cache/; these patterns catch them if a script writes them elsewhere.
 *.pt
+# ... except the committed artifacts, trained on public external data only.
+!artifacts/*.pt
 *.pth
 *.ckpt
 *.onnx
 *.safetensors
 *.wav
 checkpoints/
-# ... except the committed artifacts, trained on public external data only.
-!artifacts/*.pt
+
+# internal team notes (kept in the private channel)
+equip/
