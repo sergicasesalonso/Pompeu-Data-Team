@@ -20,7 +20,8 @@ pip install -r requirements-cpu-torch.lock
 ```
 
 With [uv](https://docs.astral.sh/uv/) instead: `uv venv --python 3.11 C:\venvs\pompeu` and
-`uv pip install --python C:\venvs\pompeu\Scripts\python.exe -r requirements-cpu-torch.lock`.
+`uv pip install --python C:\venvs\pompeu\Scripts\python.exe --index-strategy unsafe-best-match -r requirements-cpu-torch.lock`
+(uv needs `--index-strategy unsafe-best-match` because the lock mixes PyPI and the PyTorch CPU index).
 `container/pompeu.def` builds the same environment as an Apptainer image. Every command below
 assumes this venv is active.
 
@@ -44,7 +45,8 @@ Expected `sha256` of `PompeuDataTeam.csv`:
 are committed (`artifacts/tcn_v1.pt`, trained on public external data only) and pinned by hash in
 the config, so the pipeline stops if they differ. To retrain them deterministically on CPU
 instead, follow "Reproduce the shipped model" in
-[results/tcn_report.md](results/tcn_report.md) (same weights hash, `ceecf8915830d7c0`).
+[results/tcn_report.md](results/tcn_report.md) (training-run hash `ceecf8915830d7c0`). The config pins
+the sha256 of the artifact file (`7aea823756b71b7e`), which is the same on every platform.
 
 **Tests:** `python -m pytest` (about 3 minutes with the data; tests that need it skip themselves
 without it). The sha256 above was reproduced twice with different empty caches (Python 3.11,

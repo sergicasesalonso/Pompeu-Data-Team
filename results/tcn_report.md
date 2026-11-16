@@ -89,7 +89,7 @@ Reading so far:
 
 TODO (task 2, not started): `hsmm_tcn` method in the pipeline with deterministic CPU retraining (`tcn.train()` is added but not wired yet), `configs/hsmm_tcn.yaml`, and a sha256 check over two clean runs plus a second machine.
 
-## Reproduce the shipped model (hsmm_tcn, tcn_v1.pt, weights hash ceecf8915830d7c0)
+## Reproduce the shipped model (hsmm_tcn, tcn_v1.pt, training-run hash ceecf8915830d7c0, file sha256 7aea823756b71b7e)
 
 Verified on the tower, CPU only, 15-11: two trainings give the same weights hash and two
 `make_submission` runs with different caches give the same sha256 (8959a2ce91303dbb0d6d05c516af80c771266eda9491dd12cb223d0de72a2379).
@@ -106,6 +106,7 @@ python scripts/experiments/tcn_train.py --out artifacts/tcn_v1.pt --extra --extr
 python scripts/make_submission.py --config configs/hsmm_tcn.yaml --out <file>
 ```
 
-`configs/hsmm_tcn.yaml` pins `tcn.sha: ceecf8915830d7c0`: the pipeline stops if the weights differ.
+`configs/hsmm_tcn.yaml` pins `tcn.sha: 7aea823756b71b7e`, the sha256 of the artifact file (portable; the torch.save
+re-serialisation hash, ceecf8915830d7c0, differs between Linux and Windows): the pipeline stops if the file differs.
 `scripts/experiments/tcn_chain.py` runs the whole chain (builds, training twice, sha256 twice) as one job;
 `--sha-only` repeats only the two submissions.

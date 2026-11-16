@@ -100,7 +100,7 @@ The team comes from Smart Tagging first when it is given, then geometry, then th
 - **Tags in training:** the external matches have no Smart Tagging, so the training inputs use *synthetic* tags. They are generated from the labels with an error model measured on the provided match against confident `rules_v0` stretches, with no ground truth.
 - **Tags on our match:** the real tags are restricted to the codes the generator produces: possession phases and four set-piece types. Zone, goal and kick-off codes never appeared in training.
 - **How it enters the HSMM:** through a product of experts. Its team log-odds log P(H) − log P(A) (weight 1) and its dead log-odds log P(D) − log(P(H)+P(A)) (weight 2) are added to the HSMM's per-frame evidence. Both weights were picked on `val`.
-- **Reproducibility:** training is deterministic on CPU. The committed weights (`artifacts/tcn_v1.pt`) are pinned by hash (`ceecf8915830d7c0`), and the pipeline stops if they differ.
+- **Reproducibility:** training is deterministic on CPU. The committed weights (`artifacts/tcn_v1.pt`) are pinned by the sha256 of the file (`7aea823756b71b7e`, the same on Linux and Windows), and the pipeline stops if they differ. Retraining reproduces the training-run hash `ceecf8915830d7c0`.
 
 **Final label policy.** There is no `X` on graded frames, and `X` outside the halves. The A10 policy (`pompeu/decode/policy.py`) removes runs of 1–2 frames. For `hsmm_v1_fit_mbr` on `val` it changes no graded label.
 
