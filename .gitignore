@@ -48,6 +48,8 @@ data/*
 # *.pdf stays as insurance: internal decks and proposals have a habit of landing in the working
 # tree, and this repository is public.
 *.pdf
+# ... except our technical document (a deliverable; same text as paper/PompeuDataTeam.md)
+!paper/PompeuDataTeam.pdf
 
 # Organiser tooling lives in ../mtah2027-organizers, outside this repository. This line is
 # insurance against it being recreated in here by habit.
