@@ -1,11 +1,108 @@
-# Pompeu Data Team — reproducing our submission
+# Pompeu Data Team — frame-level ball possession from automatic tracking
 
-Our code is in `pompeu/`, the configs in `configs/` and the scripts in `scripts/`. How it works:
-[ARQUITECTURA.md](ARQUITECTURA.md). Everything below this section is the organisers' README.
+**More Than A Hack 2027, Phase 1** (Barça Innovation Hub × Metrica Sports × Mobile World Capital Barcelona).
+Task: for each of the **199,319 frames** of a full LaLiga match (FC Barcelona – Athletic Club), say who has the ball
+(`H` home, `A` away, `D` dead ball). The input is automatic, uncorrected tracking in which **the ball is invisible on 41%
+of the scored frames**. Ranked on **spellF1**, a metric that counts whole possessions rather than individual frames.
 
-**1. Environment** — Python **3.11** (the lock pins numpy 2.0.2, which has no wheels for 3.13).
-The submission needs torch on CPU, so install `requirements-cpu-torch.lock` (it is
-`requirements.lock` plus torch 2.9.1+cpu; no GPU is used):
+📄 **Technical document:** [paper/PompeuDataTeam.pdf](paper/PompeuDataTeam.pdf) ([Markdown](paper/PompeuDataTeam.md)) ·
+🧱 **Module-by-module design:** [ARQUITECTURA.md](ARQUITECTURA.md) · 🏁 **Original challenge:** [ORGANISERS.md](ORGANISERS.md)
+
+## Result
+
+| | spellF1 |
+|---|---|
+| Organisers' published baseline, full match | 0.243 |
+| **Our submission (`hsmm_tcn`), private full match** | **0.458**: rank **303 of 759** submissions (top 40%), 1.9× the baseline |
+| Winning submission | 0.710 |
+
+The repository regenerates the submitted file **bit for bit** from a clean clone: same sha256, on CPU, with no
+manual steps ([Reproduce](#reproduce)).
+
+We also wrote up honestly where our validation went wrong: it predicted 0.678 and the private match gave 0.458.
+See [Post-mortem](#post-mortem-what-we-would-do-differently).
+
+## How it works
+
+```mermaid
+flowchart LR
+    ATD[Automatic tracking<br/>players + ball] --> A1[A1 cleaning<br/>jumps, frozen slots,<br/>tracklet stitching]
+    A1 --> A2[A2 features<br/>~200 per frame]
+    A2 --> A3[A3 dead ball<br/>sticky HMM + LightGBM]
+    A2 --> A4[A4 touches & controls<br/>rules_v0 state machine]
+    A2 --> TCN[Dilated TCN<br/>±51 s context]
+    ST[Smart Tagging] --> TCN
+    A3 --> HSMM
+    A4 --> HSMM
+    TCN --> HSMM[HSMM<br/>team-owned live/dead states,<br/>explicit durations]
+    HSMM --> MBR[MBR decoding<br/>max expected spellF1]
+    MBR --> CSV[frame,label]
+```
+
+- **Possessions as objects, not frames.** spellF1 matches possession runs by temporal IoU, and per-frame voting
+  fragments them. On our bench, smoothed voting predicted twice as many possessions as there were. So we segment the
+  match with a **hidden semi-Markov model**. It has explicit durations and four states: live and dead, each owned by a team.
+  Owning the dead-ball state by team builds the restart rule into the model, since the team that restarts usually keeps the ball.
+- **Experts combined by product of experts.** The HSMM receives three sources of evidence:
+  - a dead-ball detector: an HMM over physical cues plus a LightGBM model, with dead-ball F1 0.911 on held-out matches;
+  - touch and control events with a rule-based possession state machine;
+  - a **dilated temporal CNN** (about 0.5 M parameters, about ±51 s of context). It reads collective, ball-free context and
+    the organisers' Smart Tagging phases to give team evidence inside long ball gaps.
+- **Decoding for the metric.** Minimum-Bayes-risk decoding over 200 posterior samples, with a boundary search on
+  expected spellF1.
+- **No hand labels anywhere.** Everything that learns is trained on **public matches from other competitions**: DFL/IDSSE
+  (7 matches, CC BY 4.0), Metrica sample data (3) and SkillCorner open data (20). Their tracking is degraded by a seeded simulator
+  so that it looks like the challenge tracking: ball gaps, blur, displaced points, identity swaps, frozen players.
+
+### Validation discipline
+- Splits by whole match (`train` / `val` / `test`). Weights are fitted on `val` only.
+- **One pre-registered `test` pass** for the final candidate. The criterion was written before running it.
+- Block-bootstrap 5–95% intervals.
+- Every candidate is scored under three label conventions (2 / 5 / 8 s), because the hidden ground truth's convention
+  for very short possessions was unknown.
+- The public five minutes of ground truth were used **only** to check the pipeline (format, alignment, team
+  orientation), never to train, tune or select.
+
+### Line B: ball from the video (explored, not submitted)
+
+| Step | Result |
+|---|---|
+| Video decoding | Exactly 199,319 frames, matching the tracking clock |
+| Ball pseudo-labels | 88,937, projected through the homography, for a detector |
+| Broadcast alignment | The broadcast tracking aligned to the tactical clock from player positions alone (median error 0.29 m), with replays discarded |
+| Fusion | Physically constrained; ball coverage of scored frames goes from 59.2% to about 62.5% |
+
+A coverage sweep showed that one point of coverage is worth about +0.0025 spellF1. The broadcast's +3 points
+(≈ +0.01) were within the noise, so it was left out of the submission.
+
+## Post-mortem: what we would do differently
+
+Our pre-registered external test predicted **0.678 [0.647, 0.709]**, and the private match gave **0.458**. After the
+results we compared our approach with other teams' public write-ups. These are the lessons. They are hypotheses from that
+comparison: none of them has been re-measured.
+
+1. **The simulator was not hard enough.** The teams that scored highest degraded their training data to remove the
+   shortcut "ball missing ⇒ dead ball". They kept the ball moving during stoppages and reproduced the challenge's long
+   ball-gap blocks. The validation benches that predicted the private score well were built deliberately to be as hard
+   as the real match.
+2. **Our cross-check signal was there.** On the public window the submission scored 0.444, against 0.678 on our bench.
+   We followed the rule not to select on that window. Still, we should have read a 0.23 gap as a sign that something
+   does not transfer and investigated the bench, before freezing.
+3. **More matches, cross-validated.** We held out 5 of our 10 well-labelled matches for `val` / `test`. Leave-one-match-out
+   cross-validation, plus larger public sets (for example the PFF FIFA World Cup 2022 tracking), would have given the
+   learned experts far more to learn from.
+4. **Validate exactly what you ship.** On the real match the TCN read the real Smart Tagging. Our external `test` matches
+   have no tagging, so that exact configuration was never measured out of sample.
+5. **Team attribution is the lever.** Getting the team right inside ball gaps matters much more than dead-ball accuracy.
+   Cheap team switches gated by a learned change signal, with live/dead switches kept expensive, beat hand-set duration
+   priors fitted on two matches.
+6. **Spend effort where the metric is.** The video and broadcast line was solid engineering, and we measured early that it
+   was worth about +0.01. That time belonged in the simulator and the team model.
+
+## Reproduce
+
+**1. Environment:** Python **3.11** (the lock pins numpy 2.0.2, which has no wheels for 3.13). The submission needs
+torch on CPU, so install `requirements-cpu-torch.lock` (it is `requirements.lock` plus torch 2.9.1+cpu; no GPU is used):
 
 ```bash
 # Linux / macOS
@@ -22,229 +119,52 @@ pip install -r requirements-cpu-torch.lock
 With [uv](https://docs.astral.sh/uv/) instead: `uv venv --python 3.11 C:\venvs\pompeu` and
 `uv pip install --python C:\venvs\pompeu\Scripts\python.exe --index-strategy unsafe-best-match -r requirements-cpu-torch.lock`
 (uv needs `--index-strategy unsafe-best-match` because the lock mixes PyPI and the PyTorch CPU index).
-`container/pompeu.def` builds the same environment as an Apptainer image. Every command below
-assumes this venv is active.
+`container/pompeu.def` builds the same environment as an Apptainer image.
 
-**2. Data** — unpack the match bundle into `data/` as described in [data/README.md](data/README.md),
-or point `MTAH_DATA_DIR` at it (`export MTAH_DATA_DIR=/path/to/bundle`, or
-`$env:MTAH_DATA_DIR = "D:\path\to\bundle"` in PowerShell). Nothing from it is in this repository.
-The pipeline caches parsed tracking in `cache/` (move it with `POMPEU_CACHE_DIR`); a run from an
-empty cache takes about 1.5 minutes.
+**2. Data:** the match data is licensed to participants only, and **none of it is in this repository**. Unpack the
+bundle into `data/` as described in [data/README.md](data/README.md), or point `MTAH_DATA_DIR` at it. Parsed tracking
+is cached in `cache/` (move it with `POMPEU_CACHE_DIR`). A run from an empty cache takes about 1.5 minutes.
 
-**3. Regenerate the submission** — one command:
+**3. Regenerate the submission:**
 
 ```bash
 python scripts/make_submission.py --config configs/final.yaml --out PompeuDataTeam.csv
 python evaluation/validate_submission.py PompeuDataTeam.csv
 ```
 
-Expected `sha256` of `PompeuDataTeam.csv`:
-`8959a2ce91303dbb0d6d05c516af80c771266eda9491dd12cb223d0de72a2379`
+Expected `sha256`: `8959a2ce91303dbb0d6d05c516af80c771266eda9491dd12cb223d0de72a2379`. It was reproduced twice with
+different empty caches.
 
-`configs/final.yaml` is `hsmm_tcn`: the HSMM with a dilated TCN as one more expert. Its weights
-are committed (`artifacts/tcn_v1.pt`, trained on public external data only) and pinned by hash in
-the config, so the pipeline stops if they differ. To retrain them deterministically on CPU
-instead, follow "Reproduce the shipped model" in
-[results/tcn_report.md](results/tcn_report.md) (training-run hash `ceecf8915830d7c0`). The config pins
-the sha256 of the artifact file (`7aea823756b71b7e`), which is the same on every platform.
+The TCN weights are committed (`artifacts/tcn_v1.pt`, trained on public external data only) and pinned by hash in the
+config (`7aea823756b71b7e`), so the pipeline stops if they differ. To retrain them deterministically on CPU, follow
+"Reproduce the shipped model" in [results/tcn_report.md](results/tcn_report.md) (training-run hash `ceecf8915830d7c0`).
 
-**Tests:** `python -m pytest` (about 3 minutes with the data; tests that need it skip themselves
-without it). The sha256 above was reproduced twice with different empty caches (Python 3.11,
-`requirements-cpu-torch.lock`, CPU).
+**Tests:** `python -m pytest` (about 3 minutes with the data). Tests that need the data skip themselves without it.
 
----
+**External bench:** `python scripts/prepare_external.py --matches all`, clone the Metrica sample data into
+`data/external/metrica/sample-data`, then `python scripts/run_validation.py --config configs/final.yaml`.
 
-# More than a Hack 2027 — Phase 1: Ball Possession
-
-**Organised by [Metrica Sports](https://metrica-sports.com), [FC Barcelona](https://www.fcbarcelona.com)
-and the [Mobile World Capital Barcelona](https://www.mwcbarcelona.com)**, at the Talent Arena in Barcelona.
-
-A football data challenge on real professional match data, open to analysts, data scientists and
-engineers. You are given one complete LaLiga match — two camera feeds, automatic tracking of every
-player and the ball, automatic tactical tagging, and the camera-to-pitch geometry — and one
-question to answer with it.
-
----
-
-## The task
-
-**For every frame of the match, say who has the ball.**
+## Repository map
 
 ```
-frame,label
-11185,A        away in possession, ball alive
-11186,A
-...
-18240,D        dead ball
-...
-18684,H        home in possession, ball alive
+pompeu/            the library: io (tracking contract), clean (A1), features (A2), events (A3–A4),
+                   models (HSMM), experimental (TCN), external (bench + degradation), vision (Line B)
+configs/           one YAML per experiment; configs/final.yaml is the submission
+scripts/           make_submission, run_validation, bench preparation, experiments
+artifacts/         committed model weights, pinned by hash
+results/           leaderboard of every experiment and per-module reports (no match data)
+paper/             the technical document
+evaluation/, starter/   the organisers' scorer, baselines and loaders, unchanged
 ```
 
-That is the whole task. One CSV, one row per video frame, 199,319 rows. It is scored automatically
-against a private frame-by-frame ground truth, so there is a number at the end and no argument
-about it — no jury, and no presentation to argue from.
+## Team
 
-The tracking is automatic and uncorrected: it has gaps and identity
-switches, and the ball itself is invisible on 41% of the frames you are scored on.
+**Martí** ([@marticasasn](https://github.com/marticasasn)): delivery, technical document, video and broadcast line.
+**Sergi** ([@sergicasesalonso](https://github.com/sergicasesalonso)): models and external bench.
+**Ander**: review, reproduction and ball and whistle detectors.
 
----
+## Licence
 
-## The challenge in one screen
-
-| |                                                                                                                           |
-|---|---------------------------------------------------------------------------------------------------------------------------|
-| **Input** | one full match: tactical video, broadcast video, automatic tracking **with the ball** for both, Smart Tagging, homography |
-| **Output** | `frame,label` CSV, 199,319 rows, labels `H` / `A` / `D` / `X`                                                             |
-| **Ranked on** | `spellF1` — how many of the match's real possessions you recovered as whole possessions                                   |
-| **Also reported** | `macroF1` — the per-frame view, and the first tie-break                                                                   |
-| **Baseline to beat** | `spellF1` **0.2433**, in this repository                                                                                  |
-| **Ground truth you get** | the first **5 minutes** of play — to check your pipeline, not to train on                                              |
-| **Ground truth you are scored on** | the full match, **private**                                                                                               |
-
-It is deliberately **not** a tracking challenge. The tracking, tagging and homography are given to
-you so that nobody has to rebuild detection, re-identification and camera calibration before
-getting to the actual question. See [CHALLENGE.md](CHALLENGE.md).
-
----
-
-## Try it right now
-
-The scorer, a 5-minute ground truth and four working baselines are in this repository. No
-enrolment, no download, no data:
-
-```bash
-pip install -r requirements.txt
-python evaluation/run_evaluation.py
-```
-
-Scored on the public 5 minutes, not on the full match -- which is why the order below is not the
-order of the floor quoted above:
-
-```
-scoreboard  gt/BAR-ATH_possession_gt_public.csv  199319 frames  7500 graded  21 gt segments
-ground truth has 17 possessions of mean 14.2 s  <- compare the poss and dur columns
-
-rank  submission                macroF1  spellF1   poss     dur  
-----  ------------------------  -------  -------  -----  ------  
-   1  baseline_smooth125         0.5812   0.4242     16    18.5  
-   2  baseline_smooth50          0.6207   0.3256     26    10.8  
-   3  baseline_smooth25          0.6200   0.2868     36     7.6  
-   4  baseline_raw               0.5972   0.0378    131     2.0  
-```
-
-Those four are **the same algorithm four times** — nearest tracked player to the ball, then a
-majority vote over a window. Only the window changes. `macroF1` barely moves; `spellF1` moves by a
-factor of eleven. That disagreement is the whole point of the metric, and
-[EVALUATION.md](EVALUATION.md) explains it.
-
-Once you have the data, regenerate them yourself and go further:
-
-```bash
-python starter/baseline.py                              # rebuild the four baselines
-python evaluation/validate_submission.py <your>.csv     # before every submission
-```
-
-**Validate every file before you submit it.** `validate_submission.py` runs exactly the checks the
-official scorer runs, and a file that fails them is dropped from the board with a one-line reason.
-It takes two seconds and it is the single most common way a good entry scores nothing.
-
----
-
-## Getting the data
-
-The match assets are released to enrolled participants who have accepted the terms of use.
-
-1. Enrol: **[More than A Hack 2027](https://landing.mobileworldcapital.com/more-than-a-hack-2027)**
-2. Read and sign the terms and conditions in the registration form
-3. You receive a download link.
-4. Unpack it into `./data`, or point `MTAH_DATA_DIR` at wherever you put it.
-
-Full description of every asset and how the frames line up: **[DATA.md](DATA.md)**.
-
----
-
-## Read these, in this order
-
-| | |
-|---|---|
-| **[CHALLENGE.md](CHALLENGE.md)** | the problem, the four labels, what counts as possession |
-| **[DATA.md](DATA.md)** | every provided asset, its format, and the frame alignment |
-| **[EVALUATION.md](EVALUATION.md)** | how you are scored, and why — read before optimising anything |
-| **[SUBMISSION.md](SUBMISSION.md)** | the file contract, the three deliverables, how to submit |
-| **[RULES.md](RULES.md)** | what you may and may not do |
-| **[FAQ.md](FAQ.md)** | |
-| **[OVERVIEW.md](OVERVIEW.md)** | the competition as a whole — context, why the 2027 format changed, the calendar |
-
-
----
-
-## What is in this repository
-
-```
-games.py                    per-match constants, asset paths and the frame alignment
-evaluation/
-  possession_metrics.py     the metric library — every number on the board is defined here
-  run_evaluation.py         the scorer. This exact file produces the official result
-  validate_submission.py    check a file before you send it
-  gt/                       the public 5-minute ground truth
-  results/                  the four baselines; put your submissions here
-starter/
-  baseline.py               the reference baseline, numpy only
-  load_atd.py               read the tracking and line it up with video frames
-  load_smart_tagging.py     read the tactical tagging as video-frame intervals
-  load_homography.py        read the homography; project pitch <-> pixels
-  utils.py                  pitch plotting for the notebooks
-  01_smart_tagging.ipynb    guided tour of the tactical tagging
-  02_tracking_atd.ipynb     guided tour of the tracking data, with plots
-  03_first_submission.ipynb data in, scored submission out — start here
-data/                       unpack the downloaded match assets here. Empty in a fresh clone
-```
-
-The scorer you run locally is the scorer that decides the competition. If it scores on your
-machine, it scores the same way on ours.
-
----
-
-## Requirements
-
-**Python 3.8 or newer.** The evaluation needs `numpy` and `pandas` and nothing else; it is tested
-under 3.8 and 3.11 and produces identical output under both. `starter/baseline.py` needs nothing
-more either — you can reach a scored submission without installing anything else.
-
-The notebooks additionally want `kloppy` and `matplotlib` (`requirements-starter.txt`), and
-**Python 3.9+ is recommended for those**: on Windows, installing Jupyter under 3.8 hits a
-`pywinpty` build failure that has nothing to do with this repository.
-
----
-
-## Timeline
-
-| |                |
-|---|----------------|
-| registration opens | **October 1, 2026** |
-| data released | **October 20, 2026** |
-| submission deadline | **November 17, 2026** |
-| results announced | **Before November 26, 2026**      |
-
----
-
-## Questions
-
-Open an issue for anything about the data, the metrics or the documentation — corrections are
-genuinely useful, and a fix that helps you helps everyone equally. For enrolment and the terms of
-use: **hackathon.talentarena@mobileworldcapital.com**.
-
-## Licence and citation
-
-The code and documentation in this repository are released under the MIT Licence — see
-[LICENSE](LICENSE). **The match data is not covered by it**: it is separately licensed for this
-competition only, under the terms you accept at enrolment.
-
-```bibtex
-@misc{mtah2027,
-  title  = {More than a Hack 2027: Phase 1 - Ball Possession},
-  author = {Metrica Sports and FC Barcelona Innovation Hub},
-  year   = {2027},
-  url    = {https://github.com/metrica-sports/more-than-a-hack-2027}
-}
-```
+The repository keeps the MIT licence of the organisers' starter kit ([LICENSE](LICENSE)). The match data is **not**
+covered: it was licensed for this competition only. External datasets keep their own licences: DFL/IDSSE CC BY 4.0, SkillCorner open
+data MIT, and Metrica sample data credited to Metrica Sports.
